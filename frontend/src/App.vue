@@ -9,6 +9,18 @@
         <h1>Gmail Client</h1>
       </div>
       <div class="header-right" v-if="store.authenticated">
+        <button
+          class="btn btn-ghost"
+          @click="store.startFetch()"
+          :disabled="store.isBusy"
+          title="Full Refetch (clear local and redownload all headers)"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          Full Refetch
+        </button>
         <span class="user-email">{{ store.profile?.email }}</span>
         <button class="btn btn-ghost" @click="toggleDark">
           {{ isDark ? '☀️' : '🌙' }}

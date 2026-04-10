@@ -24,6 +24,15 @@ export const useEmailStore = defineStore('email', () => {
   const someSelected = computed(() => selectedUids.value.size > 0 && !allSelected.value)
   const selectionCount = computed(() => selectedUids.value.size)
 
+  // Sender Selection
+  const selectedSenderEmails = ref(new Set())
+  const allSendersSelected = computed(() => {
+    if (senders.value.length === 0) return false
+    return senders.value.every(s => selectedSenderEmails.value.has(s.sender_email))
+  })
+  const someSendersSelected = computed(() => selectedSenderEmails.value.size > 0 && !allSendersSelected.value)
+  const senderSelectionCount = computed(() => selectedSenderEmails.value.size)
+
   // Auto-pull
   const autoPullEnabled = ref(false)
   const autoPullInterval = ref(0)
@@ -132,6 +141,7 @@ export const useEmailStore = defineStore('email', () => {
     summary.value = { total: 0, read: 0, unread: 0, unique_senders: 0 }
     progress.value = { total: 0, processed: 0, percent: 0, status: 'idle', action: 'fetch', error: null }
     selectedUids.value = new Set()
+    selectedSenderEmails.value = new Set()
     autoPullEnabled.value = false
     autoPullInterval.value = 0
   }
@@ -154,6 +164,26 @@ export const useEmailStore = defineStore('email', () => {
 
   function clearSelection() {
     selectedUids.value = new Set()
+  }
+
+  // ── Sender Selection ───────────────────────────────────
+
+  function toggleSenderSelect(emailAddr) {
+    const s = new Set(selectedSenderEmails.value)
+    s.has(emailAddr) ? s.delete(emailAddr) : s.add(emailAddr)
+    selectedSenderEmails.value = s
+  }
+
+  function toggleAllSendersSelect() {
+    if (allSendersSelected.value) {
+      selectedSenderEmails.value = new Set()
+    } else {
+      selectedSenderEmails.value = new Set(senders.value.map(s => s.sender_email))
+    }
+  }
+
+  function clearSenderSelection() {
+    selectedSenderEmails.value = new Set()
   }
 
   // ── Trigger background operations ──────────────────────
@@ -180,6 +210,15 @@ export const useEmailStore = defineStore('email', () => {
   async function deleteBySender(senderEmail) {
     clearSelection()
     await api.startDeleteBySender(senderEmail)
+    _startPolling()
+  }
+
+  async function deleteSelectedSenders() {
+    const selectedEmails = Array.from(selectedSenderEmails.value)
+    if (selectedEmails.length === 0) return
+    
+    clearSenderSelection()
+    await api.startDeleteBulkSenders(selectedEmails)
     _startPolling()
   }
 
@@ -266,14 +305,16 @@ export const useEmailStore = defineStore('email', () => {
     authenticated, profile, emails, senders, summary,
     progress, isBusy, hasData,
     selectedUids, allSelected, someSelected, selectionCount,
+    selectedSenderEmails, allSendersSelected, someSendersSelected, senderSelectionCount,
     autoPullEnabled, autoPullInterval,
     viewMode, searchQuery, sortBy, sortOrder,
     currentPage, pageSize, totalEmails, totalPages,
     senderSortBy, senderSortOrder,
     checkAuth, login, logout,
     toggleSelect, toggleSelectAll, clearSelection,
+    toggleSenderSelect, toggleAllSendersSelect, clearSenderSelection,
     startFetch, refreshEmails, setAutoPull,
-    deleteSelected, deleteBySender,
+    deleteSelected, deleteBySender, deleteSelectedSenders,
     loadEmails, loadSenders, loadSummary,
     search, setSort, setPage, setSenderSort, filterBySender,
   }

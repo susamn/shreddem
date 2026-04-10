@@ -16,6 +16,7 @@ export default {
   startRefresh: () => api.post('/emails/refresh'),
   startDelete: (uids) => api.post('/emails/delete', { uids }),
   startDeleteBySender: (senderEmail) => api.post('/emails/delete-by-sender', { sender_email: senderEmail }),
+  startDeleteBulkSenders: (senderEmails) => api.post('/emails/delete-bulk-senders', { sender_emails: senderEmails }),
 
   // State polling
   getProgress: () => api.get('/emails/progress'),

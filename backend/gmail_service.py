@@ -21,6 +21,7 @@ from datetime import datetime
 IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 SESSION_FILE = Path(__file__).parent / ".session.json"
+NUM_WORKERS = 4  # Number of parallel IMAP connections for fetching
 
 
 def decode_header_value(raw: str) -> str:
@@ -255,15 +256,108 @@ class GmailService:
             is_read=is_read,
         )
 
-    # ── Fetch: full scan ─────────────────────────────────────────
+    # ── Fetch: parallelized ──────────────────────────────────────
 
     def start_full_fetch(self, batch_size: int = 200):
         """Launch a full fetch as a background task."""
         self._cancel_bg_task()
         self._bg_task = asyncio.create_task(self._do_full_fetch(batch_size))
 
+    def start_refresh(self, batch_size: int = 200):
+        """Launch an incremental fetch as a background task."""
+        if self.is_busy():
+            return
+        self._cancel_bg_task()
+        self._bg_task = asyncio.create_task(self._do_refresh(batch_size))
+
+    async def _fetch_worker_task(self, uids: list[bytes], batch_size: int, worker_id: int):
+        """Worker task that uses its own IMAP connection to fetch a subset of emails."""
+        mail = None
+        try:
+            # Create a dedicated connection for this worker
+            mail = await asyncio.to_thread(imaplib.IMAP4_SSL, IMAP_HOST, IMAP_PORT)
+            await asyncio.to_thread(mail.login, self._email_address, self._app_password)
+            
+            # Select folder (read-only)
+            candidates = [
+                '"[Gmail]/All Mail"',
+                '"[Gmail]/Tous les messages"',
+                '"[Gmail]/Alle Nachrichten"',
+                '"[Gmail]/Todos"',
+                '"[Gmail]/Tutti i messaggi"',
+                "INBOX",
+            ]
+            selected = False
+            for folder in candidates:
+                try:
+                    status, _ = await asyncio.to_thread(mail.select, folder, True)
+                    if status == "OK":
+                        selected = True
+                        break
+                except Exception:
+                    continue
+            
+            if not selected:
+                return []
+
+            worker_emails = []
+            for i in range(0, len(uids), batch_size):
+                batch = uids[i : i + batch_size]
+                uid_range = b",".join(batch)
+
+                status, response = await asyncio.to_thread(
+                    mail.uid, "FETCH", uid_range,
+                    "(FLAGS BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])",
+                )
+                if status != "OK":
+                    continue
+
+                # Parse and collect
+                j = 0
+                while j < len(response):
+                    item = response[j]
+                    if isinstance(item, tuple) and len(item) == 2:
+                        meta_line = item[0]
+                        header_data = item[1]
+                        meta_str = meta_line.decode("utf-8", errors="replace")
+
+                        uid_str = ""
+                        if "UID " in meta_str:
+                            uid_start = meta_str.index("UID ") + 4
+                            uid_end = meta_str.index(" ", uid_start) if " " in meta_str[uid_start:] else len(meta_str)
+                            uid_str = meta_str[uid_start:uid_end].strip().rstrip(")")
+                        
+                        if not uid_str:
+                            j += 1
+                            continue
+
+                        flags_part = b""
+                        if b"FLAGS" in meta_line:
+                            start = meta_line.find(b"FLAGS (")
+                            if start != -1:
+                                end = meta_line.find(b")", start + 7)
+                                flags_part = meta_line[start : end + 1]
+
+                        try:
+                            parsed = self._parse_uid_message(uid_str, header_data, flags_part)
+                            worker_emails.append(parsed)
+                            # Update global progress safely
+                            self.progress.processed += 1
+                        except Exception:
+                            pass
+                    j += 1
+                await asyncio.sleep(0.01)
+            return worker_emails
+
+        finally:
+            if mail:
+                try:
+                    await asyncio.to_thread(mail.logout)
+                except Exception:
+                    pass
+
     async def _do_full_fetch(self, batch_size: int):
-        """Background: fetch all email headers using UIDs."""
+        """Background: fetch all email headers using parallel workers."""
         self.emails = []
         self._known_uids = set()
         self.progress = ActionProgress(status="discovering", action="fetch")
@@ -275,7 +369,6 @@ class GmailService:
                 self.progress.error = "Could not open mailbox folder"
                 return
 
-            # UID SEARCH returns stable UIDs
             status, data = await asyncio.to_thread(self._mail.uid, "SEARCH", None, "ALL")
             if status != "OK":
                 self.progress.status = "error"
@@ -283,28 +376,31 @@ class GmailService:
                 return
 
             uid_list = data[0].split()
-            self.progress.total = len(uid_list)
-            self.progress.status = "fetching"
-
             if not uid_list:
                 self.progress.status = "done"
                 return
 
-            for i in range(0, len(uid_list), batch_size):
-                batch = uid_list[i : i + batch_size]
-                uid_range = b",".join(batch)
+            self.progress.total = len(uid_list)
+            self.progress.processed = 0
+            self.progress.status = "fetching"
 
-                status, response = await asyncio.to_thread(
-                    self._mail.uid, "FETCH", uid_range,
-                    "(FLAGS BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])",
-                )
-                if status != "OK":
-                    continue
-
-                self._parse_fetch_response(response)
-
-                self.progress.processed = len(self.emails)
-                await asyncio.sleep(0.01)
+            # Split UIDs into chunks for workers
+            chunk_size = (len(uid_list) + NUM_WORKERS - 1) // NUM_WORKERS
+            chunks = [uid_list[i : i + chunk_size] for i in range(0, len(uid_list), chunk_size)]
+            
+            tasks = [
+                self._fetch_worker_task(chunk, batch_size, i)
+                for i, chunk in enumerate(chunks)
+            ]
+            
+            results = await asyncio.gather(*tasks)
+            
+            # Combine results
+            for worker_emails in results:
+                for em in worker_emails:
+                    if em.uid not in self._known_uids:
+                        self.emails.append(em)
+                        self._known_uids.add(em.uid)
 
             self.progress.status = "done"
 
@@ -314,17 +410,8 @@ class GmailService:
             self.progress.status = "error"
             self.progress.error = str(e)
 
-    # ── Fetch: incremental (new emails only) ─────────────────────
-
-    def start_refresh(self, batch_size: int = 200):
-        """Launch an incremental fetch as a background task."""
-        if self.is_busy():
-            return
-        self._cancel_bg_task()
-        self._bg_task = asyncio.create_task(self._do_refresh(batch_size))
-
     async def _do_refresh(self, batch_size: int):
-        """Background: fetch only emails not already cached."""
+        """Background: fetch only emails not already cached using parallel workers."""
         self.progress = ActionProgress(status="discovering", action="fetch")
 
         try:
@@ -348,23 +435,26 @@ class GmailService:
                 return
 
             self.progress.total = len(new_uids)
+            self.progress.processed = 0
             self.progress.status = "fetching"
 
-            for i in range(0, len(new_uids), batch_size):
-                batch = new_uids[i : i + batch_size]
-                uid_range = b",".join(batch)
-
-                status, response = await asyncio.to_thread(
-                    self._mail.uid, "FETCH", uid_range,
-                    "(FLAGS BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])",
-                )
-                if status != "OK":
-                    continue
-
-                self._parse_fetch_response(response)
-
-                self.progress.processed = len(new_uids[:i + len(batch)])
-                await asyncio.sleep(0.01)
+            # Split new UIDs into chunks for workers
+            chunk_size = (len(new_uids) + NUM_WORKERS - 1) // NUM_WORKERS
+            chunks = [new_uids[i : i + chunk_size] for i in range(0, len(new_uids), chunk_size)]
+            
+            tasks = [
+                self._fetch_worker_task(chunk, batch_size, i)
+                for i, chunk in enumerate(chunks)
+            ]
+            
+            results = await asyncio.gather(*tasks)
+            
+            # Combine results
+            for worker_emails in results:
+                for em in worker_emails:
+                    if em.uid not in self._known_uids:
+                        self.emails.append(em)
+                        self._known_uids.add(em.uid)
 
             self.progress.status = "done"
 
@@ -373,51 +463,6 @@ class GmailService:
         except Exception as e:
             self.progress.status = "error"
             self.progress.error = str(e)
-
-    # ── Shared fetch response parser ─────────────────────────────
-
-    def _parse_fetch_response(self, response):
-        """Parse an IMAP UID FETCH response and append to self.emails."""
-        j = 0
-        while j < len(response):
-            item = response[j]
-            if isinstance(item, tuple) and len(item) == 2:
-                meta_line = item[0]
-                header_data = item[1]
-
-                meta_str = meta_line.decode("utf-8", errors="replace")
-
-                # Extract UID from response like: '1 (UID 12345 FLAGS (...) ...'
-                uid_str = ""
-                if "UID " in meta_str:
-                    uid_start = meta_str.index("UID ") + 4
-                    uid_end = meta_str.index(" ", uid_start) if " " in meta_str[uid_start:] else len(meta_str)
-                    uid_str = meta_str[uid_start:uid_end].strip().rstrip(")")
-                if not uid_str:
-                    j += 1
-                    continue
-
-                # Skip if already known
-                if uid_str in self._known_uids:
-                    j += 1
-                    continue
-
-                # Extract flags
-                flags_part = b""
-                if b"FLAGS" in meta_line:
-                    start = meta_line.find(b"FLAGS (")
-                    if start != -1:
-                        end = meta_line.find(b")", start + 7)
-                        flags_part = meta_line[start : end + 1]
-
-                try:
-                    parsed = self._parse_uid_message(uid_str, header_data, flags_part)
-                    self.emails.append(parsed)
-                    self._known_uids.add(uid_str)
-                except Exception:
-                    pass
-
-            j += 1
 
     # ── Delete operations ────────────────────────────────────────
 
@@ -429,6 +474,15 @@ class GmailService:
     def start_delete_by_sender(self, sender_email: str):
         """Delete all cached emails from a specific sender."""
         uids = [e.uid for e in self.emails if e.sender_email.lower() == sender_email.lower()]
+        if not uids:
+            self.progress = ActionProgress(status="done", action="delete")
+            return
+        self.start_delete(uids)
+
+    def start_bulk_delete_by_senders(self, sender_emails: list[str]):
+        """Delete all cached emails from multiple specific senders."""
+        sender_set = {email.lower() for email in sender_emails}
+        uids = [e.uid for e in self.emails if e.sender_email.lower() in sender_set]
         if not uids:
             self.progress = ActionProgress(status="done", action="delete")
             return

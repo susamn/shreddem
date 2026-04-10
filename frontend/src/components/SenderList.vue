@@ -1,7 +1,26 @@
 <template>
   <div class="sender-list">
-    <div class="list-header">
-      <span class="count">{{ store.senders.length }} unique senders</span>
+    <!-- Bulk action bar -->
+    <div class="bulk-bar" v-if="store.senderSelectionCount > 0">
+      <span class="bulk-count">{{ store.senderSelectionCount }} senders selected</span>
+      <button class="btn btn-danger" @click="handleDeleteSelected" :disabled="store.isBusy">
+        Delete All from Selected Senders
+      </button>
+      <button class="btn btn-ghost" @click="store.clearSenderSelection()">Cancel</button>
+    </div>
+
+    <div class="list-header" v-else>
+      <div class="header-left">
+        <input
+          type="checkbox"
+          class="master-check"
+          :checked="store.allSendersSelected"
+          :indeterminate="store.someSendersSelected"
+          @change="store.toggleAllSendersSelect()"
+          title="Select all senders"
+        />
+        <span class="count">{{ store.senders.length }} unique senders</span>
+      </div>
       <div class="sender-sort">
         <select @change="onSortChange" :value="currentSort">
           <option value="total-desc">Most emails</option>
@@ -22,7 +41,15 @@
         class="sender-card"
         v-for="sender in store.senders"
         :key="sender.sender_email"
+        :class="{ selected: store.selectedSenderEmails.has(sender.sender_email) }"
       >
+        <div class="sender-check">
+          <input
+            type="checkbox"
+            :checked="store.selectedSenderEmails.has(sender.sender_email)"
+            @change="store.toggleSenderSelect(sender.sender_email)"
+          />
+        </div>
         <div class="sender-avatar" @click="store.filterBySender(sender.sender_email)">
           {{ getInitials(sender.sender_name) }}
         </div>
@@ -89,6 +116,12 @@ function handleDeleteSender(sender) {
     store.deleteBySender(sender.sender_email)
   }
 }
+
+function handleDeleteSelected() {
+  if (confirm(`Delete ALL emails from the ${store.senderSelectionCount} selected senders? This will move them to Trash.`)) {
+    store.deleteSelectedSenders()
+  }
+}
 </script>
 
 <style scoped>
@@ -99,12 +132,46 @@ function handleDeleteSender(sender) {
   overflow: hidden;
 }
 
+/* Bulk action bar */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #e8f0fe;
+  border-bottom: 1px solid var(--primary);
+}
+
+.dark .bulk-bar {
+  background: rgba(66, 133, 244, 0.15);
+}
+
+.bulk-count {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-right: auto;
+}
+
 .list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.master-check {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 
 .count {
@@ -136,7 +203,7 @@ function handleDeleteSender(sender) {
 
 .sender-card {
   display: grid;
-  grid-template-columns: 42px 1fr auto 32px;
+  grid-template-columns: 24px 42px 1fr auto 32px;
   gap: 4px 10px;
   padding: 14px 12px;
   background: var(--surface);
@@ -145,6 +212,20 @@ function handleDeleteSender(sender) {
 }
 
 .sender-card:hover { background: rgba(66, 133, 244, 0.04); }
+.sender-card.selected { background: rgba(66, 133, 244, 0.08); }
+
+.sender-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sender-check input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
 
 .sender-avatar {
   width: 42px;
@@ -236,4 +317,18 @@ function handleDeleteSender(sender) {
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-danger:hover { background: #c82333; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

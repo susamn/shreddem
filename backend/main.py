@@ -72,6 +72,10 @@ class DeleteBySenderRequest(BaseModel):
     sender_email: str
 
 
+class BulkDeleteSendersRequest(BaseModel):
+    sender_emails: list[str]
+
+
 class AutoPullRequest(BaseModel):
     interval: int
 
@@ -157,6 +161,17 @@ async def start_delete_by_sender(req: DeleteBySenderRequest):
         return {"started": False, "reason": "Another operation is already running"}
     gmail.start_delete_by_sender(req.sender_email)
     return {"started": True, "sender": req.sender_email}
+
+
+@app.post("/api/emails/delete-bulk-senders")
+async def start_delete_bulk_senders(req: BulkDeleteSendersRequest):
+    """Delete all emails from multiple senders in the background."""
+    if not gmail.is_authenticated():
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if gmail.is_busy():
+        return {"started": False, "reason": "Another operation is already running"}
+    gmail.start_bulk_delete_by_senders(req.sender_emails)
+    return {"started": True, "count": len(req.sender_emails)}
 
 
 # ── State polling (browser reads this) ───────────────────────────
