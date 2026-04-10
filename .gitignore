@@ -1,0 +1,7 @@
+node_modules/
+dist/
+backend/__pycache__/
+backend/.session.json
+backend/.env
+.DS_Store
+*.pyc
