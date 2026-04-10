@@ -116,7 +116,7 @@ def logout():
 # These return immediately. Browser polls /api/emails/progress.
 
 @app.post("/api/emails/fetch")
-def start_fetch():
+async def start_fetch():
     """Start a full email fetch in the background."""
     if not gmail.is_authenticated():
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -127,7 +127,7 @@ def start_fetch():
 
 
 @app.post("/api/emails/refresh")
-def start_refresh():
+async def start_refresh():
     """Start an incremental fetch (new emails only) in the background."""
     if not gmail.is_authenticated():
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -138,7 +138,7 @@ def start_refresh():
 
 
 @app.post("/api/emails/delete")
-def start_delete(req: DeleteRequest):
+async def start_delete(req: DeleteRequest):
     """Delete emails by UIDs in the background."""
     if not gmail.is_authenticated():
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -149,7 +149,7 @@ def start_delete(req: DeleteRequest):
 
 
 @app.post("/api/emails/delete-by-sender")
-def start_delete_by_sender(req: DeleteBySenderRequest):
+async def start_delete_by_sender(req: DeleteBySenderRequest):
     """Delete all emails from a sender in the background."""
     if not gmail.is_authenticated():
         raise HTTPException(status_code=401, detail="Not authenticated")
