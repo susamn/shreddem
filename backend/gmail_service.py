@@ -256,6 +256,44 @@ class GmailService:
             is_read=is_read,
         )
 
+    # ── Shared fetch response parser ─────────────────────────────
+
+    def _parse_fetch_response(self, response):
+        """Parse an IMAP UID FETCH response and append to self.emails."""
+        parsed_emails = []
+        j = 0
+        while j < len(response):
+            item = response[j]
+            if isinstance(item, tuple) and len(item) == 2:
+                meta_line = item[0]
+                header_data = item[1]
+                meta_str = meta_line.decode("utf-8", errors="replace")
+
+                uid_str = ""
+                if "UID " in meta_str:
+                    uid_start = meta_str.index("UID ") + 4
+                    uid_end = meta_str.index(" ", uid_start) if " " in meta_str[uid_start:] else len(meta_str)
+                    uid_str = meta_str[uid_start:uid_end].strip().rstrip(")")
+                
+                if not uid_str:
+                    j += 1
+                    continue
+
+                flags_part = b""
+                if b"FLAGS" in meta_line:
+                    start = meta_line.find(b"FLAGS (")
+                    if start != -1:
+                        end = meta_line.find(b")", start + 7)
+                        flags_part = meta_line[start : end + 1]
+
+                try:
+                    parsed = self._parse_uid_message(uid_str, header_data, flags_part)
+                    parsed_emails.append(parsed)
+                except Exception:
+                    pass
+            j += 1
+        return parsed_emails
+
     # ── Fetch: parallelized ──────────────────────────────────────
 
     def start_full_fetch(self, batch_size: int = 200):
@@ -312,40 +350,9 @@ class GmailService:
                 if status != "OK":
                     continue
 
-                # Parse and collect
-                j = 0
-                while j < len(response):
-                    item = response[j]
-                    if isinstance(item, tuple) and len(item) == 2:
-                        meta_line = item[0]
-                        header_data = item[1]
-                        meta_str = meta_line.decode("utf-8", errors="replace")
-
-                        uid_str = ""
-                        if "UID " in meta_str:
-                            uid_start = meta_str.index("UID ") + 4
-                            uid_end = meta_str.index(" ", uid_start) if " " in meta_str[uid_start:] else len(meta_str)
-                            uid_str = meta_str[uid_start:uid_end].strip().rstrip(")")
-                        
-                        if not uid_str:
-                            j += 1
-                            continue
-
-                        flags_part = b""
-                        if b"FLAGS" in meta_line:
-                            start = meta_line.find(b"FLAGS (")
-                            if start != -1:
-                                end = meta_line.find(b")", start + 7)
-                                flags_part = meta_line[start : end + 1]
-
-                        try:
-                            parsed = self._parse_uid_message(uid_str, header_data, flags_part)
-                            worker_emails.append(parsed)
-                            # Update global progress safely
-                            self.progress.processed += 1
-                        except Exception:
-                            pass
-                    j += 1
+                batch_emails = self._parse_fetch_response(response)
+                worker_emails.extend(batch_emails)
+                self.progress.processed += len(batch_emails)
                 await asyncio.sleep(0.01)
             return worker_emails
 
@@ -517,29 +524,30 @@ class GmailService:
                 batch = uids[i : i + batch_size]
                 uid_range = ",".join(batch)
 
-                try:
-                    # Copy to Trash then mark deleted
-                    copied = False
-                    for trash in trash_candidates:
-                        try:
-                            status, _ = await asyncio.to_thread(
-                                self._mail.uid, "COPY", uid_range, trash
-                            )
-                            if status == "OK":
-                                copied = True
-                                break
-                        except Exception:
-                            continue
+                # Copy to Trash then mark deleted
+                copied = False
+                for trash in trash_candidates:
+                    try:
+                        status, _ = await asyncio.to_thread(
+                            self._mail.uid, "COPY", uid_range, trash
+                        )
+                        if status == "OK":
+                            copied = True
+                            break
+                    except Exception:
+                        continue
 
-                    if copied:
+                if copied:
+                    try:
                         await asyncio.to_thread(
                             self._mail.uid, "STORE", uid_range, "+FLAGS", "(\\Deleted)"
                         )
                         await asyncio.to_thread(self._mail.expunge)
-
-                    deleted_uids.update(batch)
-                except Exception:
-                    pass
+                        deleted_uids.update(batch)
+                    except Exception:
+                        # If store/expunge fails, we still consider it 'not yet deleted from local'
+                        # but we let the outer exception handler catch it if it's fatal
+                        raise
 
                 self.progress.processed = len(deleted_uids)
                 await asyncio.sleep(0.05)
