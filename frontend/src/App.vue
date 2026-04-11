@@ -6,7 +6,7 @@
           <rect x="2" y="4" width="20" height="16" rx="2" />
           <path d="M22 4L12 13L2 4" />
         </svg>
-        <h1>Gmail Client</h1>
+        <h1>Shreddem</h1>
       </div>
       <div class="header-right" v-if="store.authenticated">
         <button
@@ -90,7 +90,7 @@ function toggleDark() {
   isDark.value = !isDark.value
 }
 
-const INACTIVITY_TIMEOUT = 30000;
+const INACTIVITY_TIMEOUT = 60000;
 let activityTimer = null;
 
 function resetTimer() {

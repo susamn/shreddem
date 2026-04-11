@@ -5,7 +5,7 @@
         <rect x="2" y="4" width="20" height="16" rx="2" />
         <path d="M22 4L12 13L2 4" />
       </svg>
-      <h2>Gmail Client</h2>
+      <h2>Shreddem</h2>
       <p class="login-desc">
         Sign in with your Gmail address and an App Password
         to scan and analyze your inbox.
@@ -62,7 +62,7 @@
         <ol>
           <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></li>
           <li>You may need to enable 2-Step Verification first</li>
-          <li>Select app: "Mail", device: "Other" (enter "Gmail Client")</li>
+          <li>Select app: "Mail", device: "Other" (enter "Shreddem")</li>
           <li>Click Generate — copy the 16-character password</li>
           <li>Paste it above (spaces are fine)</li>
         </ol>

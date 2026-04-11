@@ -26,7 +26,7 @@ RUN mkdir -p static
 COPY --from=frontend-build /app/frontend/dist ./static
 
 # Ensure correct volume configurations
-RUN mkdir -p /root/.config/gmail-client
+RUN mkdir -p /root/.config/shreddem
 
 # Expose internal port
 EXPOSE 8000

@@ -231,6 +231,7 @@ def get_emails(
 
 @app.get("/api/emails/senders")
 def get_senders(
+    search: str = Query(default=""),
     sort_by: str = Query(default="total"),
     sort_order: str = Query(default="desc"),
     page: int = Query(default=1, ge=1),
@@ -240,7 +241,7 @@ def get_senders(
     if not gmail.is_authenticated():
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    stats = gmail.get_sender_stats()
+    stats = gmail.get_sender_stats(search=search)
     sort_key_map = {"total": "total", "unread": "unread", "name": "sender_name"}
     key = sort_key_map.get(sort_by, "total")
     reverse = sort_order == "desc"

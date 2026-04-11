@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 from contextlib import contextmanager
 
-CONFIG_DIR = Path.home() / ".config" / "gmail-client"
+CONFIG_DIR = Path.home() / ".config" / "shreddem"
 DB_FILE = CONFIG_DIR / "emails.db"
 
 # Thread-local storage for DB connections, since sqlite3 connections cannot be shared across threads.

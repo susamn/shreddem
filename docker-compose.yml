@@ -1,16 +1,16 @@
 version: '3.8'
 
 services:
-  gmail-client:
+  shreddem:
     build: .
     ports:
       - "12324:8000"
     volumes:
-      - gmail_client_data:/root/.config/gmail-client
+      - shreddem_data:/root/.config/shreddem
     environment:
       - HOST=0.0.0.0
       - PORT=8000
     restart: unless-stopped
 
 volumes:
-  gmail_client_data:
+  shreddem_data:

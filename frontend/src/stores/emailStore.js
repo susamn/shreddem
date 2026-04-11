@@ -322,6 +322,7 @@ export const useEmailStore = defineStore('email', () => {
   async function loadSenders() {
     try {
       const { data } = await api.getSenders({
+        search: searchQuery.value,
         sort_by: senderSortBy.value,
         sort_order: senderSortOrder.value,
         page: senderCurrentPage.value,

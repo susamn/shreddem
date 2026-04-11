@@ -614,9 +614,9 @@ class GmailService:
                 (q, q, q)
             ).fetchall()
 
-    def get_sender_stats(self) -> list[dict]:
+    def get_sender_stats(self, search: str = "") -> list[dict]:
         with db.get_connection() as conn:
-            rows = conn.execute('''
+            query = '''
                 SELECT 
                     sender_email, 
                     MAX(sender_name) as sender_name,
@@ -626,9 +626,18 @@ class GmailService:
                     MAX(date) as latest_date,
                     MAX(timestamp) as latest_timestamp
                 FROM emails 
+            '''
+            params = ()
+            if search:
+                query += " WHERE sender_name LIKE ? OR sender_email LIKE ? "
+                q = f"%{search}%"
+                params = (q, q)
+                
+            query += '''
                 GROUP BY LOWER(sender_email)
                 ORDER BY total DESC
-            ''').fetchall()
+            '''
+            rows = conn.execute(query, params).fetchall()
             return rows
 
     def get_summary(self) -> dict:
