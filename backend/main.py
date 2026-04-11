@@ -9,8 +9,11 @@ import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
 
 from gmail_service import GmailService
@@ -285,6 +288,18 @@ async def set_auto_pull(req: AutoPullRequest):
 
     return {"enabled": auto_pull_interval > 0, "interval": auto_pull_interval}
 
+
+# ── Static SPA Routing ───────────────────────────────────────────
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+    @app.exception_handler(404)
+    async def fallback_to_index(request: Request, exc: StarletteHTTPException):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        return FileResponse(os.path.join(static_dir, "index.html"))
 
 # ── Run server ───────────────────────────────────────────────────
 
