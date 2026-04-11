@@ -7,6 +7,7 @@ Browser just polls for current state — refresh-safe.
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -26,7 +27,7 @@ gmail = GmailService()
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "200"))
 
 # ── Auto-pull state ──────────────────────────────────────────────
-auto_pull_task: asyncio.Task | None = None
+auto_pull_task: Optional[asyncio.Task] = None
 auto_pull_interval: int = 0  # seconds, 0 = off
 
 
@@ -87,6 +88,40 @@ class AutoPullRequest(BaseModel):
     interval: int
 
 
+# ── Helpers ──────────────────────────────────────────────────────
+
+def _require_auth():
+    """Raise 401 if not authenticated."""
+    if not gmail.is_authenticated():
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+def _check_busy():
+    """Return a 'not started' response if a background task is running, else None."""
+    if gmail.is_busy():
+        return {"started": False, "reason": "Another operation is already running"}
+    return None
+
+
+def _sort_key(key: str, numeric_keys: set[str]):
+    """Return a safe sort lambda that handles None values."""
+    if key in numeric_keys:
+        return lambda e: e.get(key) or 0
+    return lambda e: e.get(key) or ""
+
+
+def _paginate(items: list, page: int, page_size: int) -> tuple[list, dict]:
+    """Return a page slice and pagination metadata."""
+    total = len(items)
+    start = (page - 1) * page_size
+    return items[start : start + page_size], {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+    }
+
+
 # ── Auth endpoints ───────────────────────────────────────────────
 
 @app.get("/api/auth/status")
@@ -107,8 +142,8 @@ def login(req: LoginRequest):
         return {"success": True, "profile": gmail.get_profile()}
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="An internal error occurred during login. Please try again.")
 
 
 @app.post("/api/auth/logout")
@@ -124,8 +159,7 @@ def logout():
 
 @app.post("/api/auth/verify-lock")
 def verify_lock(req: UnlockRequest):
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _require_auth()
     if gmail.verify_lock(req.lock_code):
         return {"success": True}
     raise HTTPException(status_code=401, detail="Invalid lock code")
@@ -137,10 +171,10 @@ def verify_lock(req: UnlockRequest):
 @app.post("/api/emails/fetch")
 async def start_fetch():
     """Start a full email fetch in the background."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if gmail.is_busy():
-        return {"started": False, "reason": "Another operation is already running"}
+    _require_auth()
+    busy = _check_busy()
+    if busy:
+        return busy
     gmail.start_full_fetch(batch_size=BATCH_SIZE)
     return {"started": True}
 
@@ -148,10 +182,10 @@ async def start_fetch():
 @app.post("/api/emails/refresh")
 async def start_refresh():
     """Start an incremental fetch (new emails only) in the background."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if gmail.is_busy():
-        return {"started": False, "reason": "Another operation is already running"}
+    _require_auth()
+    busy = _check_busy()
+    if busy:
+        return busy
     gmail.start_refresh(batch_size=BATCH_SIZE)
     return {"started": True}
 
@@ -159,10 +193,10 @@ async def start_refresh():
 @app.post("/api/emails/delete")
 async def start_delete(req: DeleteRequest):
     """Delete emails by UIDs in the background."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if gmail.is_busy():
-        return {"started": False, "reason": "Another operation is already running"}
+    _require_auth()
+    busy = _check_busy()
+    if busy:
+        return busy
     gmail.start_delete(req.uids)
     return {"started": True, "count": len(req.uids)}
 
@@ -170,10 +204,10 @@ async def start_delete(req: DeleteRequest):
 @app.post("/api/emails/delete-by-sender")
 async def start_delete_by_sender(req: DeleteBySenderRequest):
     """Delete all emails from a sender in the background."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if gmail.is_busy():
-        return {"started": False, "reason": "Another operation is already running"}
+    _require_auth()
+    busy = _check_busy()
+    if busy:
+        return busy
     gmail.start_delete_by_sender(req.sender_email)
     return {"started": True, "sender": req.sender_email}
 
@@ -181,10 +215,10 @@ async def start_delete_by_sender(req: DeleteBySenderRequest):
 @app.post("/api/emails/delete-bulk-senders")
 async def start_delete_bulk_senders(req: BulkDeleteSendersRequest):
     """Delete all emails from multiple senders in the background."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if gmail.is_busy():
-        return {"started": False, "reason": "Another operation is already running"}
+    _require_auth()
+    busy = _check_busy()
+    if busy:
+        return busy
     gmail.start_bulk_delete_by_senders(req.sender_emails)
     return {"started": True, "count": len(req.sender_emails)}
 
@@ -206,27 +240,16 @@ def get_emails(
     page_size: int = Query(default=50, ge=1, le=500),
 ):
     """Get fetched emails with search, sort, pagination."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _require_auth()
 
     emails = gmail.search_emails(search) if search else gmail.get_emails()
 
     sort_key_map = {"date": "timestamp", "sender": "sender_name", "subject": "subject"}
     key = sort_key_map.get(sort_by, "timestamp")
-    reverse = sort_order == "desc"
-    emails.sort(key=lambda e: e.get(key, ""), reverse=reverse)
+    emails.sort(key=_sort_key(key, {"timestamp"}), reverse=(sort_order == "desc"))
 
-    total = len(emails)
-    start = (page - 1) * page_size
-    page_emails = emails[start : start + page_size]
-
-    return {
-        "emails": page_emails,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-    }
+    page_emails, meta = _paginate(emails, page, page_size)
+    return {"emails": page_emails, **meta}
 
 
 @app.get("/api/emails/senders")
@@ -238,32 +261,20 @@ def get_senders(
     page_size: int = Query(default=30, ge=1, le=500),
 ):
     """Get email stats grouped by sender."""
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _require_auth()
 
     stats = gmail.get_sender_stats(search=search)
     sort_key_map = {"total": "total", "unread": "unread", "name": "sender_name"}
     key = sort_key_map.get(sort_by, "total")
-    reverse = sort_order == "desc"
-    stats.sort(key=lambda s: s.get(key, ""), reverse=reverse)
+    stats.sort(key=_sort_key(key, {"total", "unread"}), reverse=(sort_order == "desc"))
 
-    total = len(stats)
-    start = (page - 1) * page_size
-    page_stats = stats[start : start + page_size]
-
-    return {
-        "senders": page_stats,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-    }
+    page_stats, meta = _paginate(stats, page, page_size)
+    return {"senders": page_stats, **meta}
 
 
 @app.get("/api/emails/summary")
 def get_summary():
-    if not gmail.is_authenticated():
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _require_auth()
     return gmail.get_summary()
 
 

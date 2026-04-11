@@ -11,7 +11,7 @@ import email.utils
 import email.header
 import asyncio
 import json
-import os
+import logging
 import base64
 from pathlib import Path
 from typing import Optional
@@ -20,11 +20,30 @@ from datetime import datetime
 
 import db
 
+logger = logging.getLogger(__name__)
+
 IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 from db import CONFIG_DIR
 SESSION_FILE = CONFIG_DIR / "session.json"
 NUM_WORKERS = 4  # Number of parallel IMAP connections for fetching
+
+FOLDER_CANDIDATES = [
+    '"[Gmail]/All Mail"',
+    '"[Gmail]/Tous les messages"',
+    '"[Gmail]/Alle Nachrichten"',
+    '"[Gmail]/Todos"',
+    '"[Gmail]/Tutti i messaggi"',
+    "INBOX",
+]
+
+TRASH_CANDIDATES = [
+    '"[Gmail]/Trash"',
+    '"[Gmail]/Corbeille"',
+    '"[Gmail]/Papierkorb"',
+    '"[Gmail]/Papelera"',
+    '"[Gmail]/Cestino"',
+]
 
 
 def decode_header_value(raw: str) -> str:
@@ -129,6 +148,7 @@ class GmailService:
             return True
         except Exception:
             # Session file corrupted or credentials expired
+            logger.warning("Failed to restore session, clearing session file")
             SESSION_FILE.unlink(missing_ok=True)
             return False
 
@@ -166,6 +186,8 @@ class GmailService:
         try:
             self._mail.noop()
         except Exception:
+            if not self._email_address or not self._app_password:
+                raise ConnectionError("Cannot reconnect: no credentials available")
             self._mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
             self._mail.login(self._email_address, self._app_password)
 
@@ -194,6 +216,18 @@ class GmailService:
 
     # ── Folder selection ─────────────────────────────────────────
 
+    @staticmethod
+    def _select_folder_on_connection(mail, candidates, readonly=True):
+        """Try each candidate folder on a given IMAP connection. Returns the folder name or None."""
+        for folder in candidates:
+            try:
+                status, _ = mail.select(folder, readonly)
+                if status == "OK":
+                    return folder
+            except Exception:
+                continue
+        return None
+
     def _select_folder(self, readonly: bool = True) -> bool:
         """Select All Mail (or INBOX) folder. Caches the name."""
         self._reconnect()
@@ -205,22 +239,10 @@ class GmailService:
             except Exception:
                 pass
 
-        candidates = [
-            '"[Gmail]/All Mail"',
-            '"[Gmail]/Tous les messages"',
-            '"[Gmail]/Alle Nachrichten"',
-            '"[Gmail]/Todos"',
-            '"[Gmail]/Tutti i messaggi"',
-            "INBOX",
-        ]
-        for folder in candidates:
-            try:
-                status, _ = self._mail.select(folder, readonly)
-                if status == "OK":
-                    self._selected_folder = folder
-                    return True
-            except Exception:
-                continue
+        folder = self._select_folder_on_connection(self._mail, FOLDER_CANDIDATES, readonly)
+        if folder:
+            self._selected_folder = folder
+            return True
         return False
 
     # ── Background task management ───────────────────────────────
@@ -232,7 +254,6 @@ class GmailService:
 
     def _handle_bg_error(self, e: Exception, context: str = ""):
         """Central error handling mechanism for IMAP Background Tasks."""
-        self._cancel_bg_task()
         self.progress.status = "error"
         err_msg = str(e).lower()
         if isinstance(e, imaplib.IMAP4.error) or "connection" in err_msg or "timeout" in err_msg or "socket" in err_msg:
@@ -247,6 +268,7 @@ class GmailService:
         else:
             self.progress.error_code = "UNKNOWN_ERROR"
             self.progress.error = f"An unexpected error occurred during {context}: {str(e)}"
+        logger.error("Background task error during %s: %s", context, e)
 
     def is_busy(self) -> bool:
         return self._bg_task is not None and not self._bg_task.done()
@@ -320,7 +342,7 @@ class GmailService:
                     parsed = self._parse_uid_message(uid_str, header_data, flags_part)
                     parsed_emails.append(parsed)
                 except Exception:
-                    pass
+                    logger.warning("Failed to parse email UID=%s, skipping", uid_str)
             j += 1
         return parsed_emails
 
@@ -346,25 +368,10 @@ class GmailService:
             mail = await asyncio.to_thread(imaplib.IMAP4_SSL, IMAP_HOST, IMAP_PORT)
             await asyncio.to_thread(mail.login, self._email_address, self._app_password)
             
-            # Select folder (read-only)
-            candidates = [
-                '"[Gmail]/All Mail"',
-                '"[Gmail]/Tous les messages"',
-                '"[Gmail]/Alle Nachrichten"',
-                '"[Gmail]/Todos"',
-                '"[Gmail]/Tutti i messaggi"',
-                "INBOX",
-            ]
-            selected = False
-            for folder in candidates:
-                try:
-                    status, _ = await asyncio.to_thread(mail.select, folder, True)
-                    if status == "OK":
-                        selected = True
-                        break
-                except Exception:
-                    continue
-            
+            # Select folder (read-only) using shared helper
+            selected = await asyncio.to_thread(
+                self._select_folder_on_connection, mail, FOLDER_CANDIDATES, True
+            )
             if not selected:
                 return []
 
@@ -383,18 +390,7 @@ class GmailService:
                 batch_emails = self._parse_fetch_response(response)
                 
                 if batch_emails:
-                    with db.get_connection() as conn:
-                        try:
-                            conn.execute("BEGIN TRANSACTION")
-                            for em in batch_emails:
-                                conn.execute(
-                                    "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
-                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                    (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), em.snippet)
-                                )
-                            conn.commit()
-                        except Exception:
-                            conn.rollback()
+                    db.insert_emails(batch_emails)
 
                 self.progress.processed += len(batch_emails)
                 await asyncio.sleep(0.01)
@@ -405,6 +401,27 @@ class GmailService:
                     await asyncio.to_thread(mail.logout)
                 except Exception:
                     pass
+
+    async def _do_fetch_uids(self, uids: list[bytes], batch_size: int, context: str):
+        """Shared: fetch given UIDs using parallel workers."""
+        self.progress.total = len(uids)
+        self.progress.processed = 0
+        self.progress.status = "fetching"
+
+        chunk_size = (len(uids) + NUM_WORKERS - 1) // NUM_WORKERS
+        chunks = [uids[i : i + chunk_size] for i in range(0, len(uids), chunk_size)]
+
+        tasks = [
+            self._fetch_worker_task(chunk, batch_size, i)
+            for i, chunk in enumerate(chunks)
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error("Fetch worker %d failed: %s", i, result)
+
+        self.progress.status = "done"
 
     async def _do_full_fetch(self, batch_size: int):
         """Background: fetch all email headers using parallel workers."""
@@ -428,21 +445,7 @@ class GmailService:
                 self.progress.status = "done"
                 return
 
-            self.progress.total = len(uid_list)
-            self.progress.processed = 0
-            self.progress.status = "fetching"
-
-            # Split UIDs into chunks for workers
-            chunk_size = (len(uid_list) + NUM_WORKERS - 1) // NUM_WORKERS
-            chunks = [uid_list[i : i + chunk_size] for i in range(0, len(uid_list), chunk_size)]
-            
-            tasks = [
-                self._fetch_worker_task(chunk, batch_size, i)
-                for i, chunk in enumerate(chunks)
-            ]
-            
-            await asyncio.gather(*tasks)
-            self.progress.status = "done"
+            await self._do_fetch_uids(uid_list, batch_size, "full fetch")
 
         except asyncio.CancelledError:
             self.progress.status = "idle"
@@ -477,21 +480,7 @@ class GmailService:
                 self.progress = ActionProgress(total=0, processed=0, status="done", action="fetch")
                 return
 
-            self.progress.total = len(new_uids)
-            self.progress.processed = 0
-            self.progress.status = "fetching"
-
-            # Split new UIDs into chunks for workers
-            chunk_size = (len(new_uids) + NUM_WORKERS - 1) // NUM_WORKERS
-            chunks = [new_uids[i : i + chunk_size] for i in range(0, len(new_uids), chunk_size)]
-            
-            tasks = [
-                self._fetch_worker_task(chunk, batch_size, i)
-                for i, chunk in enumerate(chunks)
-            ]
-            
-            await asyncio.gather(*tasks)
-            self.progress.status = "done"
+            await self._do_fetch_uids(new_uids, batch_size, "incremental refresh")
 
         except asyncio.CancelledError:
             self.progress.status = "idle"
@@ -544,14 +533,6 @@ class GmailService:
                 self.progress.error = "Could not open mailbox for deletion"
                 return
 
-            trash_candidates = [
-                '"[Gmail]/Trash"',
-                '"[Gmail]/Corbeille"',
-                '"[Gmail]/Papierkorb"',
-                '"[Gmail]/Papelera"',
-                '"[Gmail]/Cestino"',
-            ]
-
             deleted_uids = set()
 
             for i in range(0, len(uids), batch_size):
@@ -560,7 +541,7 @@ class GmailService:
 
                 # Copy to Trash then mark deleted
                 copied = False
-                for trash in trash_candidates:
+                for trash in TRASH_CANDIDATES:
                     try:
                         status, _ = await asyncio.to_thread(
                             self._mail.uid, "COPY", uid_range, trash
@@ -572,24 +553,19 @@ class GmailService:
                         continue
 
                 if copied:
-                    try:
-                        await asyncio.to_thread(
-                            self._mail.uid, "STORE", uid_range, "+FLAGS", "(\\Deleted)"
-                        )
-                        await asyncio.to_thread(self._mail.expunge)
-                        deleted_uids.update(batch)
-                    except Exception:
-                        # If store/expunge fails, we still consider it 'not yet deleted from local'
-                        # but we let the outer exception handler catch it if it's fatal
-                        raise
+                    await asyncio.to_thread(
+                        self._mail.uid, "STORE", uid_range, "+FLAGS", "(\\Deleted)"
+                    )
+                    await asyncio.to_thread(self._mail.expunge)
+                    deleted_uids.update(batch)
 
                 self.progress.processed = len(deleted_uids)
                 await asyncio.sleep(0.05)
 
             # Remove from local cache
-            with db.get_connection() as conn:
+            if deleted_uids:
                 placeholders = ",".join("?" for _ in deleted_uids)
-                if placeholders:
+                with db.get_connection() as conn:
                     conn.execute(f"DELETE FROM emails WHERE uid IN ({placeholders})", list(deleted_uids))
                     conn.commit()
 

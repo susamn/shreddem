@@ -1,8 +1,10 @@
 import sqlite3
-import os
+import logging
 import threading
 from pathlib import Path
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path.home() / ".config" / "shreddem"
 DB_FILE = CONFIG_DIR / "emails.db"
@@ -40,8 +42,34 @@ def clear_db():
             conn.execute("DELETE FROM emails")
             conn.commit()
             conn.execute("VACUUM")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("Failed to clear database: %s", e)
+
+def insert_emails(emails):
+    """Insert or replace a list of EmailHeader objects into the database."""
+    with get_connection() as conn:
+        try:
+            conn.execute("BEGIN TRANSACTION")
+            for em in emails:
+                if hasattr(em, "uid"):
+                    # EmailHeader dataclass
+                    conn.execute(
+                        "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), getattr(em, "snippet", ""))
+                    )
+                elif isinstance(em, dict):
+                    conn.execute(
+                        "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (em.get("uid"), em.get("subject", ""), em.get("sender_email", ""),
+                         em.get("sender_name", ""), em.get("date", ""), em.get("timestamp", 0),
+                         int(em.get("is_read", True)), em.get("snippet", ""))
+                    )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 @contextmanager
 def get_connection():
@@ -62,9 +90,7 @@ def get_connection():
 
 def dict_factory(cursor, row):
     """Dictionary factory for sqlite3 rows to convert them nicely."""
-    d = {}
-    for idx, col in enumerate(cursor.description):
-        d[col[0]] = row[idx]
+    d = {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
     # Re-map numeric boolean back to Python boolean for application layer
     if 'is_read' in d:
         d['is_read'] = bool(d['is_read'])
