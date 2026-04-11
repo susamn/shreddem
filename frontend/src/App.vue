@@ -53,15 +53,17 @@
           <SenderList v-if="store.viewMode === 'senders'" />
         </template>
 
-        <!-- Error state -->
-        <div v-if="store.progress.status === 'error'" class="error-box">
-          <p>Error: {{ store.progress.error }}</p>
-          <button class="btn btn-primary" @click="store.startFetch()">Retry</button>
-        </div>
-
         <!-- Floating progress bar (bottom-right) — shows for fetch, delete, etc. -->
         <ProgressBar v-if="store.isBusy" />
       </template>
+    <!-- Global Error Toast -->
+    <div v-if="store.appError" class="toast-error">
+      <div class="toast-content">
+        <strong>{{ store.appError.code }}</strong>
+        <p>{{ store.appError.message }}</p>
+      </div>
+      <button class="btn btn-ghost" style="color: white; padding: 4px;" @click="store.dismissError()">✕</button>
+    </div>
     </main>
   </div>
 </template>
@@ -271,4 +273,38 @@ body {
 }
 
 .error-box p { margin-bottom: 16px; }
+
+/* ── Toast Error ───────────────────────────────────────── */
+.toast-error {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--danger);
+  color: white;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  z-index: 1000;
+  max-width: 400px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.toast-content strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.toast-content p {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
 </style>

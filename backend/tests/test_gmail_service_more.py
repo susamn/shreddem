@@ -33,7 +33,8 @@ async def test_do_delete_exception_outer(gmail_service):
         await gmail_service._do_delete(["99"])
     
     assert gmail_service.progress.status == "error"
-    assert gmail_service.progress.error == "Outer fail"
+    assert "Outer fail" in gmail_service.progress.error
+    assert gmail_service.progress.error_code == "UNKNOWN_ERROR"
 
 @pytest.mark.asyncio
 async def test_fetch_worker_task_no_folder(gmail_service):

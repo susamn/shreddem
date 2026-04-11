@@ -12,8 +12,15 @@ export const useEmailStore = defineStore('email', () => {
   const summary = ref({ total: 0, read: 0, unread: 0, unique_senders: 0 })
 
   // Progress (polled from backend)
-  const progress = ref({ total: 0, processed: 0, percent: 0, status: 'idle', action: 'fetch', error: null })
+  const progress = ref({ total: 0, processed: 0, percent: 0, status: 'idle', action: 'fetch', error: null, error_code: null })
   const isBusy = computed(() => ['discovering', 'fetching', 'deleting'].includes(progress.value.status))
+
+  // Global Error State
+  const appError = ref(null)
+
+  function dismissError() {
+    appError.value = null
+  }
   const hasData = computed(() => emails.value.length > 0)
 
   // Selection (uses uid)
@@ -87,6 +94,13 @@ export const useEmailStore = defineStore('email', () => {
         loadSenders()
         loadSummary()
         _stopPolling()
+        
+        if (data.status === 'error') {
+          appError.value = {
+            code: data.error_code || 'UNKNOWN_ERROR',
+            message: data.error || 'An unexpected error occurred during background processing.'
+          }
+        }
       }
     } catch {
       // Backend might be restarting, keep trying
@@ -326,6 +340,7 @@ export const useEmailStore = defineStore('email', () => {
     viewMode, searchQuery, sortBy, sortOrder,
     currentPage, pageSize, totalEmails, totalPages,
     senderSortBy, senderSortOrder,
+    appError, dismissError,
     checkAuth, login, logout, verifyLockCode,
     toggleSelect, toggleSelectAll, clearSelection,
     toggleSenderSelect, toggleAllSendersSelect, clearSenderSelection,

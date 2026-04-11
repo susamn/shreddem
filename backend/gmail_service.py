@@ -66,6 +66,7 @@ class ActionProgress:
     status: str = "idle"  # idle | discovering | fetching | deleting | done | error
     action: str = "fetch"  # fetch | delete
     error: Optional[str] = None
+    error_code: Optional[str] = None
 
     @property
     def percent(self) -> float:
@@ -81,6 +82,7 @@ class ActionProgress:
             "status": self.status,
             "action": self.action,
             "error": self.error,
+            "error_code": self.error_code,
         }
 
 
@@ -227,6 +229,24 @@ class GmailService:
         if self._bg_task and not self._bg_task.done():
             self._bg_task.cancel()
             self._bg_task = None
+
+    def _handle_bg_error(self, e: Exception, context: str = ""):
+        """Central error handling mechanism for IMAP Background Tasks."""
+        self._cancel_bg_task()
+        self.progress.status = "error"
+        err_msg = str(e).lower()
+        if isinstance(e, imaplib.IMAP4.error) or "connection" in err_msg or "timeout" in err_msg or "socket" in err_msg:
+            self.progress.error_code = "NETWORK_ERROR"
+            self.progress.error = f"Network/Connection dropped during {context}. Please check your connection."
+        elif "login" in err_msg or "auth" in err_msg or "credential" in err_msg:
+            self.progress.error_code = "AUTH_ERROR"
+            self.progress.error = f"Authentication failed during {context}. Credentials may have expired."
+        elif "limit" in err_msg or "bandwidth" in err_msg:
+            self.progress.error_code = "IMAP_LIMIT"
+            self.progress.error = f"Gmail IMAP bandwidth limit exceeded during {context}. Please wait."
+        else:
+            self.progress.error_code = "UNKNOWN_ERROR"
+            self.progress.error = f"An unexpected error occurred during {context}: {str(e)}"
 
     def is_busy(self) -> bool:
         return self._bg_task is not None and not self._bg_task.done()
@@ -427,8 +447,7 @@ class GmailService:
         except asyncio.CancelledError:
             self.progress.status = "idle"
         except Exception as e:
-            self.progress.status = "error"
-            self.progress.error = str(e)
+            self._handle_bg_error(e, "full fetch")
 
     async def _do_refresh(self, batch_size: int):
         """Background: fetch only emails not already cached using parallel workers."""
@@ -477,8 +496,7 @@ class GmailService:
         except asyncio.CancelledError:
             self.progress.status = "idle"
         except Exception as e:
-            self.progress.status = "error"
-            self.progress.error = str(e)
+            self._handle_bg_error(e, "incremental refresh")
 
     # ── Delete operations ────────────────────────────────────────
 
@@ -580,8 +598,7 @@ class GmailService:
         except asyncio.CancelledError:
             self.progress.status = "idle"
         except Exception as e:
-            self.progress.status = "error"
-            self.progress.error = str(e)
+            self._handle_bg_error(e, "delete operation")
 
     # ── Query helpers ────────────────────────────────────────────
 
