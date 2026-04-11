@@ -85,6 +85,27 @@
         </button>
       </div>
     </div>
+    
+    <!-- Pagination -->
+    <div class="pagination" v-if="store.senderTotalPages > 1">
+      <button
+        class="btn btn-ghost"
+        :disabled="store.senderCurrentPage <= 1"
+        @click="store.setSenderPage(store.senderCurrentPage - 1)"
+      >
+        ← Prev
+      </button>
+      <span class="page-info">
+        Page {{ store.senderCurrentPage }} of {{ store.senderTotalPages }}
+      </span>
+      <button
+        class="btn btn-ghost"
+        :disabled="store.senderCurrentPage >= store.senderTotalPages"
+        @click="store.setSenderPage(store.senderCurrentPage + 1)"
+      >
+        Next →
+      </button>
+    </div>
   </div>
 </template>
 
@@ -331,4 +352,20 @@ function handleDeleteSelected() {
 
 .btn-danger:hover { background: #c82333; }
 .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.page-info {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
 </style>

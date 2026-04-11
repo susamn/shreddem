@@ -230,6 +230,8 @@ def get_emails(
 def get_senders(
     sort_by: str = Query(default="total"),
     sort_order: str = Query(default="desc"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=30, ge=1, le=500),
 ):
     """Get email stats grouped by sender."""
     if not gmail.is_authenticated():
@@ -241,7 +243,17 @@ def get_senders(
     reverse = sort_order == "desc"
     stats.sort(key=lambda s: s.get(key, ""), reverse=reverse)
 
-    return {"senders": stats, "total_senders": len(stats)}
+    total = len(stats)
+    start = (page - 1) * page_size
+    page_stats = stats[start : start + page_size]
+
+    return {
+        "senders": page_stats,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+    }
 
 
 @app.get("/api/emails/summary")

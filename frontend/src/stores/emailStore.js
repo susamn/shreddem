@@ -54,8 +54,14 @@ export const useEmailStore = defineStore('email', () => {
   const pageSize = ref(50)
   const totalEmails = ref(0)
   const totalPages = ref(0)
+  
+  // Sender View State
   const senderSortBy = ref('total')
   const senderSortOrder = ref('desc')
+  const senderCurrentPage = ref(1)
+  const senderPageSize = ref(30)
+  const totalSenders = ref(0)
+  const senderTotalPages = ref(0)
 
   // Polling timer
   let _pollTimer = null
@@ -286,8 +292,17 @@ export const useEmailStore = defineStore('email', () => {
       const { data } = await api.getSenders({
         sort_by: senderSortBy.value,
         sort_order: senderSortOrder.value,
+        page: senderCurrentPage.value,
+        page_size: senderPageSize.value,
       })
       senders.value = data.senders
+      totalSenders.value = data.total
+      senderTotalPages.value = data.total_pages
+      // Fallback boundaries if total pages shrink during fetch
+      if (senderCurrentPage.value > data.total_pages && data.total_pages > 0) {
+         senderCurrentPage.value = data.total_pages
+         loadSenders() // re-fetch bounded
+      }
     } catch {}
   }
 
@@ -321,6 +336,13 @@ export const useEmailStore = defineStore('email', () => {
   function setSenderSort(field, order) {
     senderSortBy.value = field
     senderSortOrder.value = order
+    senderCurrentPage.value = 1
+    loadSenders()
+  }
+
+  function setSenderPage(page) {
+    if (page < 1 || page > senderTotalPages.value) return
+    senderCurrentPage.value = page
     loadSenders()
   }
 
@@ -339,7 +361,7 @@ export const useEmailStore = defineStore('email', () => {
     autoPullEnabled, autoPullInterval,
     viewMode, searchQuery, sortBy, sortOrder,
     currentPage, pageSize, totalEmails, totalPages,
-    senderSortBy, senderSortOrder,
+    senderSortBy, senderSortOrder, senderCurrentPage, senderPageSize, totalSenders, senderTotalPages,
     appError, dismissError,
     checkAuth, login, logout, verifyLockCode,
     toggleSelect, toggleSelectAll, clearSelection,
@@ -347,6 +369,6 @@ export const useEmailStore = defineStore('email', () => {
     startFetch, refreshEmails, setAutoPull,
     deleteSelected, deleteBySender, deleteSelectedSenders,
     loadEmails, loadSenders, loadSummary,
-    search, setSort, setPage, setSenderSort, filterBySender,
+    search, setSort, setPage, setSenderSort, setSenderPage, filterBySender,
   }
 })
