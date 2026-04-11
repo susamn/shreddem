@@ -95,8 +95,14 @@ import { useEmailStore } from '../stores/emailStore.js'
 
 const store = useEmailStore()
 
-function handleDelete() {
-  if (confirm(`Delete ${store.selectionCount} email(s)? This will move them to Trash.`)) {
+async function handleDelete() {
+  const confirmed = await store.askConfirm({
+    title: 'Delete Emails',
+    message: `Delete ${store.selectionCount} email(s)? This will move them to Trash.`,
+    confirmText: 'Delete',
+    intent: 'danger'
+  })
+  if (confirmed) {
     store.deleteSelected()
   }
 }

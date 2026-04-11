@@ -23,6 +23,38 @@ export const useEmailStore = defineStore('email', () => {
   }
   const hasData = computed(() => emails.value.length > 0)
 
+  // Global Dialog State
+  const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    intent: 'danger',
+    resolveCallback: null
+  })
+
+  function askConfirm(options) {
+    return new Promise((resolve) => {
+      confirmDialog.value = {
+        isOpen: true,
+        title: options.title || 'Confirm Action',
+        message: options.message || 'Are you sure?',
+        confirmText: options.confirmText || 'Confirm',
+        cancelText: options.cancelText || 'Cancel',
+        intent: options.intent || 'danger',
+        resolveCallback: resolve
+      }
+    })
+  }
+
+  function resolveConfirm(result) {
+    if (confirmDialog.value.resolveCallback) {
+      confirmDialog.value.resolveCallback(result)
+    }
+    confirmDialog.value.isOpen = false
+  }
+
   // Selection (uses uid)
   const selectedUids = ref(new Set())
   const allSelected = computed(() => {
@@ -363,6 +395,7 @@ export const useEmailStore = defineStore('email', () => {
     currentPage, pageSize, totalEmails, totalPages,
     senderSortBy, senderSortOrder, senderCurrentPage, senderPageSize, totalSenders, senderTotalPages,
     appError, dismissError,
+    confirmDialog, askConfirm, resolveConfirm,
     checkAuth, login, logout, verifyLockCode,
     toggleSelect, toggleSelectAll, clearSelection,
     toggleSenderSelect, toggleAllSendersSelect, clearSenderSelection,

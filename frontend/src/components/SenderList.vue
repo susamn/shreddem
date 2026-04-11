@@ -132,14 +132,26 @@ function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function handleDeleteSender(sender) {
-  if (confirm(`Delete all ${sender.total} email(s) from ${sender.sender_name} (${sender.sender_email})? This will move them to Trash.`)) {
+async function handleDeleteSender(sender) {
+  const confirmed = await store.askConfirm({
+    title: 'Delete Sender',
+    message: `Delete all ${sender.total} email(s) from ${sender.sender_name} (${sender.sender_email})? This will move them to Trash.`,
+    confirmText: 'Delete Everything',
+    intent: 'danger'
+  })
+  if (confirmed) {
     store.deleteBySender(sender.sender_email)
   }
 }
 
-function handleDeleteSelected() {
-  if (confirm(`Delete ALL emails from the ${store.senderSelectionCount} selected senders? This will move them to Trash.`)) {
+async function handleDeleteSelected() {
+  const confirmed = await store.askConfirm({
+    title: 'Delete Selected Senders',
+    message: `Delete ALL emails from the ${store.senderSelectionCount} selected senders? This will move them to Trash.`,
+    confirmText: 'Delete Bulk',
+    intent: 'danger'
+  })
+  if (confirmed) {
     store.deleteSelectedSenders()
   }
 }

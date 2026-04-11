@@ -56,6 +56,9 @@
         <!-- Floating progress bar (bottom-right) — shows for fetch, delete, etc. -->
         <ProgressBar v-if="store.isBusy" />
       </template>
+      
+    <ConfirmModal />
+
     <!-- Global Error Toast -->
     <div v-if="store.appError" class="toast-error">
       <div class="toast-content">
@@ -78,6 +81,7 @@ import SummaryBar from './components/SummaryBar.vue'
 import Toolbar from './components/Toolbar.vue'
 import EmailList from './components/EmailList.vue'
 import SenderList from './components/SenderList.vue'
+import ConfirmModal from './components/ConfirmModal.vue'
 
 const store = useEmailStore()
 const isDark = ref(false)
