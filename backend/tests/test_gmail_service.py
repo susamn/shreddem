@@ -118,10 +118,12 @@ async def test_bulk_delete_by_senders(gmail_service):
         mock_start_delete.assert_called_with(["1"])
 
 def test_logout(gmail_service):
-    insert_test_emails([{"uid": "1"}])
+    insert_test_emails([EmailHeader(uid="1", subject="S", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)])
     gmail_service.logout()
     import db
-    assert not db.DB_FILE.exists()
+    with db.get_connection() as conn:
+        count = conn.execute("SELECT COUNT(*) as c FROM emails").fetchone()["c"]
+    assert count == 0
     assert gmail_service._email_address == ""
 
 @pytest.mark.asyncio

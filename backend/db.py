@@ -29,19 +29,19 @@ def init_db():
                 snippet TEXT
             )
         """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sender_email ON emails(sender_email)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON emails(timestamp DESC)")
         conn.commit()
 
 def clear_db():
-    """Delete the database file fully (e.g. on logout)."""
-    if DB_FILE.exists():
-        try:
-            # Try to close any cached thread-local connections first
-            if hasattr(_local, "conn"):
-                _local.conn.close()
-                del _local.conn
-            DB_FILE.unlink()
-        except OSError:
-            pass
+    """Clear all data from the database securely on logout."""
+    try:
+        with get_connection() as conn:
+            conn.execute("DELETE FROM emails")
+            conn.commit()
+            conn.execute("VACUUM")
+    except Exception:
+        pass
 
 @contextmanager
 def get_connection():
