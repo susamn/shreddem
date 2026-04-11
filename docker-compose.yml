@@ -1,7 +1,9 @@
+name: shreddem
 version: '3.8'
 
 services:
   shreddem:
+    container_name: shreddem
     build: .
     ports:
       - "12324:8000"
