@@ -149,6 +149,7 @@ async def test_fetch_worker_task(gmail_service):
         mock_instance.uid.return_value = ("OK", [ (b'1 (UID 1 FLAGS (\\Seen))', b'From: A\r\nSubject: S1\r\nDate: Mon, 1 Jan 2024 10:00:00 +0000\r\n\r\n') ])
         mock_instance.logout.return_value = ("OK", [b"OK"])
 
-        emails = await gmail_service._fetch_worker_task([b"1"], batch_size=1, worker_id=0)
+        await gmail_service._fetch_worker_task([b"1"], batch_size=1, worker_id=0)
+        emails = gmail_service.get_emails()
         assert len(emails) == 1
-        assert emails[0].uid == "1"
+        assert emails[0]["uid"] == "1"

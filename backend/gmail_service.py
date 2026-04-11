@@ -361,10 +361,23 @@ class GmailService:
                     continue
 
                 batch_emails = self._parse_fetch_response(response)
-                worker_emails.extend(batch_emails)
+                
+                if batch_emails:
+                    with db.get_connection() as conn:
+                        try:
+                            conn.execute("BEGIN TRANSACTION")
+                            for em in batch_emails:
+                                conn.execute(
+                                    "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                    (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), em.snippet)
+                                )
+                            conn.commit()
+                        except Exception:
+                            conn.rollback()
+
                 self.progress.processed += len(batch_emails)
                 await asyncio.sleep(0.01)
-            return worker_emails
 
         finally:
             if mail:
@@ -408,24 +421,7 @@ class GmailService:
                 for i, chunk in enumerate(chunks)
             ]
             
-            results = await asyncio.gather(*tasks)
-            
-            # Combine results
-            with db.get_connection() as conn:
-                conn.execute("BEGIN TRANSACTION")
-                try:
-                    for worker_emails in results:
-                        for em in worker_emails:
-                            conn.execute(
-                                "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
-                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), em.snippet)
-                            )
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
-                    raise
-
+            await asyncio.gather(*tasks)
             self.progress.status = "done"
 
         except asyncio.CancelledError:
@@ -475,24 +471,7 @@ class GmailService:
                 for i, chunk in enumerate(chunks)
             ]
             
-            results = await asyncio.gather(*tasks)
-            
-            # Combine results
-            with db.get_connection() as conn:
-                conn.execute("BEGIN TRANSACTION")
-                try:
-                    for worker_emails in results:
-                        for em in worker_emails:
-                            conn.execute(
-                                "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
-                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), em.snippet)
-                            )
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
-                    raise
-
+            await asyncio.gather(*tasks)
             self.progress.status = "done"
 
         except asyncio.CancelledError:
