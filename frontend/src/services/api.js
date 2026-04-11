@@ -8,8 +8,9 @@ const api = axios.create({
 export default {
   // Auth
   getAuthStatus: () => api.get('/auth/status'),
-  login: (email, app_password) => api.post('/auth/login', { email, app_password }),
+  login: (email, app_password, lock_code) => api.post('/auth/login', { email, app_password, lock_code }),
   logout: () => api.post('/auth/logout'),
+  verifyLock: (lock_code) => api.post('/auth/verify-lock', { lock_code }),
 
   // Background task triggers (return immediately)
   startFetch: () => api.post('/emails/fetch'),

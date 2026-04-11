@@ -5,6 +5,7 @@ import api from '../services/api.js'
 export const useEmailStore = defineStore('email', () => {
   // ── State ──────────────────────────────────────────────
   const authenticated = ref(false)
+  const isLocked = ref(false)
   const profile = ref(null)
   const emails = ref([])
   const senders = ref([])
@@ -118,12 +119,13 @@ export const useEmailStore = defineStore('email', () => {
     }
   }
 
-  async function login(emailAddr, appPassword) {
+  async function login(emailAddr, appPassword, lockCode) {
     try {
-      const { data } = await api.login(emailAddr, appPassword)
+      const { data } = await api.login(emailAddr, appPassword, lockCode)
       if (data.success) {
         authenticated.value = true
         profile.value = data.profile
+        isLocked.value = false
       }
       return data
     } catch (err) {
@@ -131,10 +133,24 @@ export const useEmailStore = defineStore('email', () => {
     }
   }
 
+  async function verifyLockCode(code) {
+    try {
+      const { data } = await api.verifyLock(code)
+      if (data.success) {
+        isLocked.value = false
+        localStorage.setItem('lastActiveTime', Date.now().toString())
+      }
+      return data
+    } catch (err) {
+      throw err.response?.data?.detail || 'Invalid lock code.'
+    }
+  }
+
   async function logout() {
     _stopPolling()
     await api.logout()
     authenticated.value = false
+    isLocked.value = false
     profile.value = null
     emails.value = []
     senders.value = []
@@ -302,7 +318,7 @@ export const useEmailStore = defineStore('email', () => {
   }
 
   return {
-    authenticated, profile, emails, senders, summary,
+    authenticated, isLocked, profile, emails, senders, summary,
     progress, isBusy, hasData,
     selectedUids, allSelected, someSelected, selectionCount,
     selectedSenderEmails, allSendersSelected, someSendersSelected, senderSelectionCount,
@@ -310,7 +326,7 @@ export const useEmailStore = defineStore('email', () => {
     viewMode, searchQuery, sortBy, sortOrder,
     currentPage, pageSize, totalEmails, totalPages,
     senderSortBy, senderSortOrder,
-    checkAuth, login, logout,
+    checkAuth, login, logout, verifyLockCode,
     toggleSelect, toggleSelectAll, clearSelection,
     toggleSenderSelect, toggleAllSendersSelect, clearSenderSelection,
     startFetch, refreshEmails, setAutoPull,

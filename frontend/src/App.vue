@@ -33,6 +33,9 @@
       <!-- Login screen -->
       <LoginScreen v-if="!store.authenticated" />
 
+      <!-- Lock Screen -->
+      <LockScreen v-else-if="store.isLocked" />
+
       <!-- Dashboard -->
       <template v-else>
         <!-- Show start button only if idle and no data -->
@@ -67,6 +70,7 @@
 import { ref, onMounted } from 'vue'
 import { useEmailStore } from './stores/emailStore.js'
 import LoginScreen from './components/LoginScreen.vue'
+import LockScreen from './components/LockScreen.vue'
 import ProgressBar from './components/ProgressBar.vue'
 import SummaryBar from './components/SummaryBar.vue'
 import Toolbar from './components/Toolbar.vue'
@@ -80,8 +84,48 @@ function toggleDark() {
   isDark.value = !isDark.value
 }
 
+const INACTIVITY_TIMEOUT = 30000;
+let activityTimer = null;
+
+function resetTimer() {
+  if (store.authenticated && !store.isLocked) {
+    localStorage.setItem('lastActiveTime', Date.now().toString());
+  }
+}
+
 onMounted(async () => {
   await store.checkAuth()
+  
+  if (store.authenticated) {
+    const lastActive = parseInt(localStorage.getItem('lastActiveTime') || '0', 10);
+    if (Date.now() - lastActive > INACTIVITY_TIMEOUT) {
+      store.isLocked = true;
+    } else {
+      resetTimer();
+    }
+  }
+
+  // Setup activity tracking (throttled)
+  const events = ['mousemove', 'keydown', 'scroll', 'click'];
+  events.forEach(evt => {
+    window.addEventListener(evt, () => {
+      if (activityTimer) return;
+      activityTimer = setTimeout(() => {
+        resetTimer();
+        activityTimer = null;
+      }, 500);
+    }, { passive: true })
+  })
+
+  // Poll periodically to enforce the lock if 30s elapsed with no activity
+  setInterval(() => {
+    if (store.authenticated && !store.isLocked) {
+      const lastActive = parseInt(localStorage.getItem('lastActiveTime') || '0', 10);
+      if (Date.now() - lastActive > INACTIVITY_TIMEOUT) {
+        store.isLocked = true;
+      }
+    }
+  }, 2000);
 })
 </script>
 

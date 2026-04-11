@@ -18,9 +18,12 @@ from typing import Optional
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 
+import db
+
 IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
-SESSION_FILE = Path(__file__).parent / ".session.json"
+from db import CONFIG_DIR
+SESSION_FILE = CONFIG_DIR / "session.json"
 NUM_WORKERS = 4  # Number of parallel IMAP connections for fetching
 
 
@@ -92,20 +95,22 @@ class GmailService:
         self._mail: Optional[imaplib.IMAP4_SSL] = None
         self._email_address: str = ""
         self._app_password: str = ""
+        self._lock_code: str = ""
         self._selected_folder: Optional[str] = None
         self.progress = ActionProgress()
-        self.emails: list[EmailHeader] = []
-        self._known_uids: set[str] = set()
+        # Initialize DB layer
+        db.init_db()
         self._bg_task: Optional[asyncio.Task] = None
 
     # ── Session persistence ──────────────────────────────────────
 
     def _save_session(self):
         """Save credentials to disk so login survives restart."""
+        db.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         data = {
             "email": self._email_address,
-            # Simple obfuscation — not encryption, just avoids plaintext on disk
             "token": base64.b64encode(self._app_password.encode()).decode(),
+            "lock_code": self._lock_code
         }
         SESSION_FILE.write_text(json.dumps(data))
 
@@ -117,7 +122,8 @@ class GmailService:
             data = json.loads(SESSION_FILE.read_text())
             email_addr = data["email"]
             app_pass = base64.b64decode(data["token"]).decode()
-            self.authenticate(email_addr, app_pass, save=False)
+            lock_code = data.get("lock_code", "")
+            self.authenticate(email_addr, app_pass, lock_code, save=False)
             return True
         except Exception:
             # Session file corrupted or credentials expired
@@ -138,7 +144,7 @@ class GmailService:
             return True
         return self._load_session()
 
-    def authenticate(self, email_address: str, app_password: str, save: bool = True) -> bool:
+    def authenticate(self, email_address: str, app_password: str, lock_code: str = "", save: bool = True) -> bool:
         """Connect to Gmail IMAP. Persists session if save=True."""
         try:
             mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
@@ -146,6 +152,7 @@ class GmailService:
             self._mail = mail
             self._email_address = email_address
             self._app_password = app_password
+            self._lock_code = lock_code
             if save:
                 self._save_session()
             return True
@@ -163,6 +170,9 @@ class GmailService:
     def get_profile(self) -> dict:
         return {"email": self._email_address}
 
+    def verify_lock(self, code: str) -> bool:
+        return code == self._lock_code
+
     def logout(self):
         """Disconnect, cancel background tasks, clear session."""
         self._cancel_bg_task()
@@ -174,11 +184,11 @@ class GmailService:
         self._mail = None
         self._email_address = ""
         self._app_password = ""
+        self._lock_code = ""
         self._selected_folder = None
-        self.emails = []
-        self._known_uids = set()
         self.progress = ActionProgress()
         self._clear_session()
+        db.clear_db()
 
     # ── Folder selection ─────────────────────────────────────────
 
@@ -365,8 +375,6 @@ class GmailService:
 
     async def _do_full_fetch(self, batch_size: int):
         """Background: fetch all email headers using parallel workers."""
-        self.emails = []
-        self._known_uids = set()
         self.progress = ActionProgress(status="discovering", action="fetch")
 
         try:
@@ -403,11 +411,20 @@ class GmailService:
             results = await asyncio.gather(*tasks)
             
             # Combine results
-            for worker_emails in results:
-                for em in worker_emails:
-                    if em.uid not in self._known_uids:
-                        self.emails.append(em)
-                        self._known_uids.add(em.uid)
+            with db.get_connection() as conn:
+                conn.execute("BEGIN TRANSACTION")
+                try:
+                    for worker_emails in results:
+                        for em in worker_emails:
+                            conn.execute(
+                                "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), em.snippet)
+                            )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
 
             self.progress.status = "done"
 
@@ -435,7 +452,11 @@ class GmailService:
                 return
 
             all_uids = data[0].split()
-            new_uids = [u for u in all_uids if u.decode("utf-8", errors="replace") not in self._known_uids]
+            with db.get_connection() as conn:
+                rows = conn.execute("SELECT uid FROM emails").fetchall()
+                known_uids = {row["uid"] for row in rows}
+
+            new_uids = [u for u in all_uids if u.decode("utf-8", errors="replace") not in known_uids]
 
             if not new_uids:
                 self.progress = ActionProgress(total=0, processed=0, status="done", action="fetch")
@@ -457,11 +478,20 @@ class GmailService:
             results = await asyncio.gather(*tasks)
             
             # Combine results
-            for worker_emails in results:
-                for em in worker_emails:
-                    if em.uid not in self._known_uids:
-                        self.emails.append(em)
-                        self._known_uids.add(em.uid)
+            with db.get_connection() as conn:
+                conn.execute("BEGIN TRANSACTION")
+                try:
+                    for worker_emails in results:
+                        for em in worker_emails:
+                            conn.execute(
+                                "INSERT OR REPLACE INTO emails (uid, subject, sender_email, sender_name, date, timestamp, is_read, snippet) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                (em.uid, em.subject, em.sender_email, em.sender_name, em.date, em.timestamp, int(em.is_read), em.snippet)
+                            )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
 
             self.progress.status = "done"
 
@@ -480,7 +510,9 @@ class GmailService:
 
     def start_delete_by_sender(self, sender_email: str):
         """Delete all cached emails from a specific sender."""
-        uids = [e.uid for e in self.emails if e.sender_email.lower() == sender_email.lower()]
+        with db.get_connection() as conn:
+            rows = conn.execute("SELECT uid FROM emails WHERE LOWER(sender_email) = ?", (sender_email.lower(),)).fetchall()
+            uids = [r["uid"] for r in rows]
         if not uids:
             self.progress = ActionProgress(status="done", action="delete")
             return
@@ -488,8 +520,13 @@ class GmailService:
 
     def start_bulk_delete_by_senders(self, sender_emails: list[str]):
         """Delete all cached emails from multiple specific senders."""
-        sender_set = {email.lower() for email in sender_emails}
-        uids = [e.uid for e in self.emails if e.sender_email.lower() in sender_set]
+        if not sender_emails:
+            self.progress = ActionProgress(status="done", action="delete")
+            return
+        placeholders = ",".join("?" for _ in sender_emails)
+        with db.get_connection() as conn:
+            rows = conn.execute(f"SELECT uid FROM emails WHERE LOWER(sender_email) IN ({placeholders})", [e.lower() for e in sender_emails]).fetchall()
+            uids = [r["uid"] for r in rows]
         if not uids:
             self.progress = ActionProgress(status="done", action="delete")
             return
@@ -553,8 +590,11 @@ class GmailService:
                 await asyncio.sleep(0.05)
 
             # Remove from local cache
-            self.emails = [e for e in self.emails if e.uid not in deleted_uids]
-            self._known_uids -= deleted_uids
+            with db.get_connection() as conn:
+                placeholders = ",".join("?" for _ in deleted_uids)
+                if placeholders:
+                    conn.execute(f"DELETE FROM emails WHERE uid IN ({placeholders})", list(deleted_uids))
+                    conn.commit()
 
             self.progress.status = "done"
 
@@ -567,51 +607,49 @@ class GmailService:
     # ── Query helpers ────────────────────────────────────────────
 
     def get_emails(self) -> list[dict]:
-        return [e.to_dict() for e in self.emails]
+        with db.get_connection() as conn:
+            return conn.execute("SELECT * FROM emails").fetchall()
 
     def search_emails(self, query: str) -> list[dict]:
-        q = query.lower()
-        return [
-            e.to_dict()
-            for e in self.emails
-            if q in e.subject.lower()
-            or q in e.sender_name.lower()
-            or q in e.sender_email.lower()
-        ]
+        q = f"%{query}%"
+        with db.get_connection() as conn:
+            return conn.execute(
+                "SELECT * FROM emails WHERE subject LIKE ? OR sender_name LIKE ? OR sender_email LIKE ?",
+                (q, q, q)
+            ).fetchall()
 
     def get_sender_stats(self) -> list[dict]:
-        senders: dict[str, dict] = {}
-        for e in self.emails:
-            key = e.sender_email.lower()
-            if key not in senders:
-                senders[key] = {
-                    "sender_email": e.sender_email,
-                    "sender_name": e.sender_name,
-                    "total": 0,
-                    "read": 0,
-                    "unread": 0,
-                    "latest_date": e.date,
-                    "latest_timestamp": e.timestamp,
-                }
-            senders[key]["total"] += 1
-            if e.is_read:
-                senders[key]["read"] += 1
-            else:
-                senders[key]["unread"] += 1
-            if e.timestamp > senders[key]["latest_timestamp"]:
-                senders[key]["latest_date"] = e.date
-                senders[key]["latest_timestamp"] = e.timestamp
-                if e.sender_name and e.sender_name != e.sender_email.split("@")[0]:
-                    senders[key]["sender_name"] = e.sender_name
-
-        return sorted(senders.values(), key=lambda s: s["total"], reverse=True)
+        with db.get_connection() as conn:
+            rows = conn.execute('''
+                SELECT 
+                    sender_email, 
+                    MAX(sender_name) as sender_name,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END) as read,
+                    SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread,
+                    MAX(date) as latest_date,
+                    MAX(timestamp) as latest_timestamp
+                FROM emails 
+                GROUP BY LOWER(sender_email)
+                ORDER BY total DESC
+            ''').fetchall()
+            return rows
 
     def get_summary(self) -> dict:
-        total = len(self.emails)
-        read = sum(1 for e in self.emails if e.is_read)
-        return {
-            "total": total,
-            "read": read,
-            "unread": total - read,
-            "unique_senders": len(set(e.sender_email.lower() for e in self.emails)),
-        }
+        with db.get_connection() as conn:
+            row = conn.execute('''
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END) as read,
+                    COUNT(DISTINCT LOWER(sender_email)) as unique_senders
+                FROM emails
+            ''').fetchone()
+            
+            total = row["total"] or 0
+            read = row["read"] or 0
+            return {
+                "total": total,
+                "read": read,
+                "unread": total - read,
+                "unique_senders": row["unique_senders"] or 0,
+            }

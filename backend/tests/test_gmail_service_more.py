@@ -25,7 +25,8 @@ def test_parse_fetch_response_edge_cases(gmail_service):
 
 @pytest.mark.asyncio
 async def test_do_delete_exception_outer(gmail_service):
-    gmail_service.emails = [EmailHeader(uid="99", subject="S", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)]
+    from conftest import insert_test_emails
+    insert_test_emails([EmailHeader(uid="99", subject="S", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)])
     
     # Mock _select_folder to raise Exception to trigger outer block
     with patch.object(gmail_service, "_select_folder", side_effect=Exception("Outer fail")):
@@ -51,7 +52,7 @@ async def test_load_session_success(gmail_service):
     
     with patch.object(gmail_service, "authenticate") as mock_auth:
         assert gmail_service._load_session() is True
-        mock_auth.assert_called_with("a@b.com", "pw", save=False)
+        mock_auth.assert_called_with("a@b.com", "pw", "", save=False)
     
     if SESSION_FILE.exists():
         SESSION_FILE.unlink()

@@ -34,6 +34,16 @@
             autocomplete="current-password"
           />
         </div>
+        <div class="form-group">
+          <label for="lockCode">Lock Code (Required)</label>
+          <input
+            id="lockCode"
+            type="password"
+            v-model="lockCode"
+            placeholder="Set a quick unlock code"
+            required
+          />
+        </div>
 
         <button class="btn btn-primary btn-lg" type="submit" :disabled="loading">
           <template v-if="loading">
@@ -73,6 +83,7 @@ import { useEmailStore } from '../stores/emailStore.js'
 const store = useEmailStore()
 const emailAddr = ref('')
 const appPassword = ref('')
+const lockCode = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -80,7 +91,7 @@ async function handleLogin() {
   loading.value = true
   error.value = ''
   try {
-    await store.login(emailAddr.value, appPassword.value)
+    await store.login(emailAddr.value, appPassword.value, lockCode.value)
     store.startFetch()
   } catch (err) {
     error.value = typeof err === 'string' ? err : 'Login failed. Check your email and app password.'

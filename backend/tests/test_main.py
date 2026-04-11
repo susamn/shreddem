@@ -21,7 +21,7 @@ async def test_auth_status_not_authenticated():
 async def test_login_failure():
     with patch.object(gmail, "authenticate", side_effect=ValueError("Invalid creds")):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.post("/api/auth/login", json={"email": "e", "app_password": "p"})
+            response = await ac.post("/api/auth/login", json={"email": "e", "app_password": "p", "lock_code": "1234"})
         assert response.status_code == 401
         assert response.json()["detail"] == "Invalid creds"
 

@@ -5,6 +5,7 @@ import base64
 from unittest.mock import MagicMock, patch, ANY
 import imaplib
 from gmail_service import GmailService, EmailHeader, ActionProgress, SESSION_FILE, decode_header_value
+from conftest import insert_test_emails
 
 @pytest.mark.asyncio
 async def test_select_folder_multiple_candidates(gmail_service):
@@ -16,8 +17,7 @@ async def test_select_folder_multiple_candidates(gmail_service):
 
 @pytest.mark.asyncio
 async def test_do_delete_trash_rotation(gmail_service):
-    gmail_service.emails = [EmailHeader(uid="1", subject="S", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)]
-    gmail_service._known_uids = {"1"}
+    insert_test_emails([EmailHeader(uid="1", subject="S", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)])
     
     # First trash candidate fails, second succeeds
     gmail_service._mail.uid.side_effect = [
@@ -29,7 +29,7 @@ async def test_do_delete_trash_rotation(gmail_service):
     
     with patch.object(gmail_service, "_select_folder", return_value=True):
         await gmail_service._do_delete(["1"])
-    assert len(gmail_service.emails) == 0
+    assert len(gmail_service.get_emails()) == 0
 
 @pytest.mark.asyncio
 async def test_fetch_worker_task_imap_fail(gmail_service):

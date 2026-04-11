@@ -62,6 +62,10 @@ app.add_middleware(
 class LoginRequest(BaseModel):
     email: str
     app_password: str
+    lock_code: str
+
+class UnlockRequest(BaseModel):
+    lock_code: str
 
 
 class DeleteRequest(BaseModel):
@@ -96,7 +100,7 @@ def auth_status():
 def login(req: LoginRequest):
     """Login with email + app password. Session is persisted to disk."""
     try:
-        gmail.authenticate(req.email, req.app_password)
+        gmail.authenticate(req.email, req.app_password, req.lock_code)
         return {"success": True, "profile": gmail.get_profile()}
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
@@ -114,6 +118,14 @@ def logout():
     auto_pull_interval = 0
     gmail.logout()
     return {"success": True}
+
+@app.post("/api/auth/verify-lock")
+def verify_lock(req: UnlockRequest):
+    if not gmail.is_authenticated():
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if gmail.verify_lock(req.lock_code):
+        return {"success": True}
+    raise HTTPException(status_code=401, detail="Invalid lock code")
 
 
 # ── Background task triggers ─────────────────────────────────────

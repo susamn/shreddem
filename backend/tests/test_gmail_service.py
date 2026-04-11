@@ -3,6 +3,7 @@ import asyncio
 from unittest.mock import MagicMock, patch, ANY
 import imaplib
 from gmail_service import GmailService, EmailHeader, ActionProgress
+from conftest import insert_test_emails
 
 @pytest.mark.asyncio
 async def test_select_folder_success(gmail_service):
@@ -37,13 +38,12 @@ async def test_do_full_fetch(gmail_service):
     with patch.object(gmail_service, "_select_folder", return_value=True):
         await gmail_service._do_full_fetch(batch_size=1)
         
-    assert len(gmail_service.emails) == 2
+    assert len(gmail_service.get_emails()) == 2
     assert gmail_service.progress.status == "done"
 
 @pytest.mark.asyncio
 async def test_do_refresh(gmail_service):
-    gmail_service._known_uids = {"1"}
-    gmail_service.emails = [EmailHeader(uid="1", subject="S1", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)]
+    insert_test_emails([EmailHeader(uid="1", subject="S1", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)])
     
     gmail_service._mail.uid.side_effect = [
         ("OK", [b"1 2"]), # SEARCH ALL returns 1 and 2
@@ -53,37 +53,35 @@ async def test_do_refresh(gmail_service):
     with patch.object(gmail_service, "_select_folder", return_value=True):
         await gmail_service._do_refresh(batch_size=1)
         
-    assert len(gmail_service.emails) == 2
-    assert "2" in gmail_service._known_uids
+    assert len(gmail_service.get_emails()) == 2
 
 @pytest.mark.asyncio
 async def test_do_delete(gmail_service):
-    gmail_service.emails = [
+    insert_test_emails([
         EmailHeader(uid="1", subject="S1", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True)
-    ]
-    gmail_service._known_uids = {"1"}
+    ])
     gmail_service._mail.uid.return_value = ("OK", [b"OK"])
     
     with patch.object(gmail_service, "_select_folder", return_value=True):
         await gmail_service._do_delete(["1"])
         
-    assert len(gmail_service.emails) == 0
+    assert len(gmail_service.get_emails()) == 0
 
 def test_sender_stats(gmail_service):
-    gmail_service.emails = [
+    insert_test_emails([
         EmailHeader(uid="1", subject="S1", sender_email="a@b.com", sender_name="A", date="2024-01-01", timestamp=1, is_read=True),
         EmailHeader(uid="2", subject="S2", sender_email="a@b.com", sender_name="A", date="2024-01-02", timestamp=2, is_read=False)
-    ]
+    ])
     stats = gmail_service.get_sender_stats()
     assert len(stats) == 1
     assert stats[0]["total"] == 2
     assert stats[0]["unread"] == 1
 
 def test_get_summary(gmail_service):
-    gmail_service.emails = [
+    insert_test_emails([
         EmailHeader(uid="1", subject="S1", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True),
         EmailHeader(uid="2", subject="S2", sender_email="b@b.com", sender_name="B", date="", timestamp=2, is_read=False)
-    ]
+    ])
     summary = gmail_service.get_summary()
     assert summary["total"] == 2
     assert summary["read"] == 1
@@ -97,33 +95,33 @@ async def test_authenticate_error(mock_imap):
         mock_instance.login.side_effect = imaplib.IMAP4.error("Login failed")
         service = GmailService()
         with pytest.raises(ValueError, match="Login failed"):
-            service.authenticate("test@gmail.com", "pw")
+            service.authenticate("test@gmail.com", "pw", "lockcode")
 
 def test_search_emails(gmail_service):
-    gmail_service.emails = [
+    insert_test_emails([
         EmailHeader(uid="1", subject="Apple", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True),
         EmailHeader(uid="2", subject="Banana", sender_email="b@b.com", sender_name="B", date="", timestamp=2, is_read=False)
-    ]
+    ])
     results = gmail_service.search_emails("apple")
     assert len(results) == 1
     assert results[0]["subject"] == "Apple"
 
 @pytest.mark.asyncio
 async def test_bulk_delete_by_senders(gmail_service):
-    gmail_service.emails = [
+    insert_test_emails([
         EmailHeader(uid="1", subject="S1", sender_email="a@b.com", sender_name="A", date="", timestamp=1, is_read=True),
         EmailHeader(uid="2", subject="S2", sender_email="b@b.com", sender_name="B", date="", timestamp=2, is_read=False)
-    ]
-    gmail_service._known_uids = {"1", "2"}
+    ])
     
     with patch.object(gmail_service, "start_delete") as mock_start_delete:
         gmail_service.start_bulk_delete_by_senders(["a@b.com"])
         mock_start_delete.assert_called_with(["1"])
 
 def test_logout(gmail_service):
-    gmail_service.emails = [{"uid": "1"}]
+    insert_test_emails([{"uid": "1"}])
     gmail_service.logout()
-    assert gmail_service.emails == []
+    import db
+    assert not db.DB_FILE.exists()
     assert gmail_service._email_address == ""
 
 @pytest.mark.asyncio
