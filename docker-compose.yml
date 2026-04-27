@@ -6,12 +6,12 @@ services:
     container_name: shreddem
     build: .
     ports:
-      - "12324:8000"
+      - "17811:17811"
     volumes:
       - shreddem_data:/root/.config/shreddem
     environment:
       - HOST=0.0.0.0
-      - PORT=8000
+      - PORT=17811
     restart: unless-stopped
 
 volumes:
