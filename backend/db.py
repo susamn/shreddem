@@ -77,10 +77,12 @@ def get_connection():
     if not hasattr(_local, "conn"):
         # We use check_same_thread=False but strictly isolate objects via thread-local,
         # ensuring fast thread safety.
-        _local.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        # Added timeout to prevent "database is locked" errors with multiple workers.
+        _local.conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
         _local.conn.row_factory = dict_factory
         _local.conn.execute("PRAGMA synchronous = OFF")
         _local.conn.execute("PRAGMA journal_mode = WAL")
+        _local.conn.execute("PRAGMA busy_timeout = 30000")
 
     try:
         yield _local.conn
