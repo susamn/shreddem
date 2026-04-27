@@ -5,7 +5,7 @@
 
 Shreddem is a high-performance Gmail management tool designed for bulk email cleanup. It uses IMAP to fetch headers into a local SQLite cache, allowing you to search, filter, and mass-delete thousands of emails instantly.
 
-![Shreddem Dashboard](https://via.placeholder.com/800x450?text=Placeholder:+Dashboard+View)
+![Shreddem Dashboard](./screenshots/dashboard.png)
 *The main dashboard provides a paginated view of all your email headers with real-time fetch progress.*
 
 ## Features
@@ -16,7 +16,7 @@ Shreddem is a high-performance Gmail management tool designed for bulk email cle
 - **Safe Deletion**: Emails are moved to the Gmail Trash folder rather than being permanently deleted immediately.
 - **Modern Stack**: Built with FastAPI (Python), Vue 3, Pinia, and Vite.
 
-![Group by Sender](https://via.placeholder.com/800x450?text=Placeholder:+Group+by+Sender+View)
+![Group by Sender](./screenshots/sender_view.png)
 *The Sender view groups emails by address, showing unread counts and providing bulk delete actions.*
 
 ## Quick Start (Fresh Machine)

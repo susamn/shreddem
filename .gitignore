@@ -5,3 +5,7 @@ backend/.session.json
 backend/.env
 .DS_Store
 *.pyc
+.idea
+*.iml
+.venv
+
