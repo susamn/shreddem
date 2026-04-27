@@ -404,6 +404,9 @@ class GmailService:
 
     async def _do_fetch_uids(self, uids: list[bytes], batch_size: int, context: str):
         """Shared: fetch given UIDs using parallel workers."""
+        if not uids:
+            self.progress.status = "done"
+            return
         self.progress.total = len(uids)
         self.progress.processed = 0
         self.progress.status = "fetching"
@@ -491,6 +494,9 @@ class GmailService:
 
     def start_delete(self, uids: list[str], batch_size: int = 50):
         """Launch delete as a background task using UIDs."""
+        if not uids:
+            self.progress = ActionProgress(status="done", action="delete")
+            return
         self._cancel_bg_task()
         self._bg_task = asyncio.create_task(self._do_delete(uids, batch_size))
 
@@ -520,6 +526,9 @@ class GmailService:
 
     async def _do_delete(self, uids: list[str], batch_size: int = 50):
         """Background: delete emails by UID — move to Trash."""
+        if not uids:
+            self.progress = ActionProgress(status="done", action="delete")
+            return
         self.progress = ActionProgress(
             total=len(uids),
             status="deleting",
