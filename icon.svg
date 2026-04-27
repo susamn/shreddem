@@ -1,0 +1,72 @@
+<svg viewBox="0 0 512 512" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#0052D4" />
+            <stop offset="50%" stop-color="#4364F7" />
+            <stop offset="100%" stop-color="#6FB1FC" />
+        </linearGradient>
+
+        <filter id="envelopeShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#001233" flood-opacity="0.35" />
+        </filter>
+        <filter id="broomShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="6" dy="12" stdDeviation="16" flood-color="#001233" flood-opacity="0.4" />
+        </filter>
+        <filter id="sparkleGlowYellow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+        <filter id="sparkleGlowCyan" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+
+        <clipPath id="clipEnv">
+            <rect x="96" y="146" width="320" height="220" rx="24" />
+        </clipPath>
+    </defs>
+
+    <rect x="0" y="0" width="512" height="512" rx="115" fill="url(#bgGrad)" />
+
+    <path d="M 80 80 Q 80 110 110 110 Q 80 110 80 140 Q 80 110 50 110 Q 80 110 80 80" fill="#FFD54F" filter="url(#sparkleGlowYellow)" />
+    <path d="M 430 130 Q 430 145 445 145 Q 430 145 430 160 Q 430 145 415 145 Q 430 145 430 130" fill="#00E5FF" filter="url(#sparkleGlowCyan)" />
+
+    <g filter="url(#envelopeShadow)">
+        <rect x="96" y="146" width="320" height="220" rx="24" fill="#ffffff" />
+        
+        <g clip-path="url(#clipEnv)">
+            <path d="M 70 120 L 242 245 C 250 251 262 251 270 245 L 442 120" fill="none" stroke="#EA4335" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" />
+            
+            <path d="M 70 390 L 210 250" fill="none" stroke="#EA4335" stroke-width="32" stroke-linecap="round" />
+            
+            <path d="M 442 390 L 302 250" fill="none" stroke="#EA4335" stroke-width="32" stroke-linecap="round" />
+        </g>
+        
+        <rect x="96" y="146" width="320" height="220" rx="24" fill="none" stroke="#E8EAED" stroke-width="3" />
+    </g>
+
+    <path d="M 160 400 C 230 450 310 440 370 380" fill="none" stroke="#00E5FF" stroke-width="12" stroke-linecap="round" />
+    <path d="M 190 425 C 240 465 300 460 350 410" fill="none" stroke="#84FFFF" stroke-width="6" stroke-linecap="round" />
+
+    <g transform="translate(345, 275) rotate(-22)" filter="url(#broomShadow)">
+        <rect x="-12" y="-180" width="24" height="220" rx="12" fill="#795548" />
+        
+        <rect x="-6" y="-170" width="4" height="190" rx="2" fill="#A1887F" />
+        
+        <path d="M -32 20 L 32 20 L 48 125 C 48 140 -48 140 -48 125 Z" fill="#FFCA28" />
+        
+        <path d="M -16 20 L -26 120 M 0 20 L 0 125 M 16 20 L 26 120" fill="none" stroke="#FFB300" stroke-width="6" stroke-linecap="round" />
+        <path d="M -8 20 L -13 122 M 8 20 L 13 122" fill="none" stroke="#FFE082" stroke-width="3" stroke-linecap="round" />
+        
+        <rect x="-36" y="20" width="72" height="14" rx="4" fill="#4E342E" />
+        <rect x="-34" y="42" width="68" height="10" rx="3" fill="#5D4037" />
+    </g>
+
+    <path d="M 120 350 Q 120 365 135 365 Q 120 365 120 380 Q 120 365 105 365 Q 120 365 120 350" fill="#FFD54F" filter="url(#sparkleGlowYellow)" />
+</svg>

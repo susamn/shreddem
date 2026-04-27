@@ -1,4 +1,7 @@
-# Shreddem
+<div align="center">
+  <img src="./icon.svg" width="150" alt="Shreddem Icon" />
+  <h1>Shreddem</h1>
+</div>
 
 Shreddem is a high-performance Gmail management tool designed for bulk email cleanup. It uses IMAP to fetch headers into a local SQLite cache, allowing you to search, filter, and mass-delete thousands of emails instantly.
 
@@ -26,11 +29,16 @@ Shreddem includes a `Makefile` to automate the entire setup.
 - **Gmail App Password**: You must [generate an App Password](https://myaccount.google.com/apppasswords) from your Google Account settings (requires 2-Step Verification).
 
 ### Bootstrap and Run
-Simply run the following command in your terminal:
+Simply run the following command in your terminal for a one-step setup:
 
 ```bash
 make bootstrap
 ```
+
+Alternatively, you can run the steps individually in this precise order:
+1. `make install` (installs dependencies)
+2. `make build` (prepares the frontend)
+3. `make run` (starts the server)
 
 This will:
 1. Verify your Python and Node versions.
