@@ -19,8 +19,8 @@ cd ..
 # Start both servers
 echo
 echo "Starting servers..."
-echo "  Backend:  http://127.0.0.1:8000"
-echo "  Frontend: http://localhost:3000"
+echo "  Backend:  http://127.0.0.1:17811"
+echo "  Frontend: http://localhost:18710"
 echo
 
 cd backend && python main.py &
@@ -33,7 +33,7 @@ FRONTEND_PID=$!
 cd ..
 
 echo
-echo "Open http://localhost:3000 in your browser"
+echo "Open http://localhost:18710 in your browser"
 echo "Press Ctrl+C to stop both servers"
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
