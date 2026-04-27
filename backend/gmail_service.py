@@ -188,6 +188,14 @@ class GmailService:
         except Exception:
             if not self._email_address or not self._app_password:
                 raise ConnectionError("Cannot reconnect: no credentials available")
+            
+            # Close old connection if it exists to avoid resource leaks
+            if self._mail:
+                try:
+                    self._mail.logout()
+                except Exception:
+                    pass
+                    
             self._mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
             self._mail.login(self._email_address, self._app_password)
 
